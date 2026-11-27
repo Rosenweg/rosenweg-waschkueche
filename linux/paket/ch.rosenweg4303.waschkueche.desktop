@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Rosenweg Waschküche
+Comment=Waschküche reservieren, Erinnerung an die eigenen Termine; für den Ausschuss Räume, Nutzungen, Abrechnung und Preis.
+Exec=rosenweg-waschkueche
+# Name im Symbol-Thema (hicolor), kein Pfad.
+Icon=rosenweg-waschkueche
+Terminal=false
+# Dateiname = GTK-Anwendungskennung (APPLICATION_ID in linux/CMakeLists.txt).
+StartupWMClass=ch.rosenweg4303.waschkueche
+# Kategorie "Rosenweg" im Startmenue der Stationen (os-stationen 60-programme.sh)
+Categories=Office;Utility;
+Keywords=Rosenweg;

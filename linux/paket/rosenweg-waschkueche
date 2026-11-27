@@ -1,0 +1,4 @@
+#!/bin/sh
+# Startet Rosenweg Waschküche aus /opt/rosenweg-waschkueche (Flutter-Buendel sucht data/
+# und lib/ neben der echten Programmdatei; wie rosenweg-profil, rosenweg-vm).
+exec /opt/rosenweg-waschkueche/rosenweg_waschkueche "$@"

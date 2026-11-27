@@ -1,0 +1,12 @@
+{
+  "_hinweis": "Eintrag fuer das App-Register (Rosenweg/Website apps-register.json, Abschnitt 'apps', Schluessel = 'app'). Erst damit nimmt die Anlage Releases dieses Repos an. Logo: assets/logo/rosenweg-waschkueche-192.png nach www img/apps/rosenweg-waschkueche.png.",
+  "app": "waschkueche",
+  "name": "Rosenweg Waschküche",
+  "repo": "Rosenweg/rosenweg-waschkueche",
+  "paket": "ch.rosenweg4303.waschkueche",
+  "logo": "/img/apps/rosenweg-waschkueche.png",
+  "reihenfolge": 100,
+  "text": "Waschküche reservieren, Erinnerung an die eigenen Termine; für den Ausschuss Räume, Nutzungen, Abrechnung und Preis.",
+  "fuer": "",
+  "technik": false
+}
