@@ -41,10 +41,15 @@ wochenweise, „Heute“ springt zurück.
 **Meine** – deine kommenden Reservationen nach Tag; rechts stornieren,
 antippen für die Angaben (Serie stornieren).
 
-**Erinnerung** – ohne Push-Dienst: Beim Öffnen und beim Zurückkehren in die
-App holt sie deine Termine. Steht einer in den nächsten 36 Stunden an oder
-läuft er, steht er oben („Heute 12:00–14:00: Waschküche 1.“). Ist die App
-offen, kommt 15 Minuten vor Beginn zusätzlich eine Meldung.
+**Erinnerung** – ohne Push-Dienst. 15 Minuten vor jeder eigenen Reservation
+meldet sich das Gerät („Waschküche in 15 Minuten“); antippen zeigt die
+Reservation. Die App plant das selbst: beim Öffnen, nach jedem Reservieren
+oder Stornieren und auf Android/iOS etwa alle 15 Minuten im Hintergrund
+(z. B. wenn du im Web storniert hast). Beim ersten Reservieren fragt das
+Gerät, ob die App Mitteilungen zeigen darf. Linux: nur solange die App offen
+ist. Auf den geteilten Telefonen gibt es keine Erinnerung (die Person
+wechselt). Zusätzlich steht der nächste Termin in den nächsten 36 Stunden
+oben in der App.
 
 **Verwalten** – nur mit dem Recht „Waschküche-Admin“ (Technik und Präsident
 immer). Lesen = ansehen, Schreiben = ändern. Die Anlage verlangt zusätzlich

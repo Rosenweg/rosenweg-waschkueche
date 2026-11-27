@@ -17,7 +17,11 @@ DateTime _uhr() => _jetzt;
 Reservation _r(int id, DateTime von, DateTime bis) => Reservation(id: id, raumId: 1, von: von, bis: bis, raumName: 'Waschküche 1');
 
 void main() {
-  setUpAll(() => Protokoll.nurKonsole = true);
+  setUpAll(() {
+    Protokoll.nurKonsole = true;
+    // keine echten Benachrichtigungen in Tests
+    Benachrichtigung.attrappe = [];
+  });
 
   Future<Attrappe> zeigen(WidgetTester t, Size groesse, {Attrappe? attrappe}) async {
     t.view.physicalSize = groesse;
@@ -55,6 +59,26 @@ void main() {
       expect(tagWort(DateTime(2026, 11, 27, 9), _jetzt), 'Übermorgen');
       expect(tagWort(DateTime(2026, 11, 30, 9), _jetzt), 'Mo 30.11.');
     });
+  });
+
+  test('Erinnerungen: 15 Minuten vorher planen, Storniertes entfernen', () async {
+    final b = Benachrichtigung.attrappe = [];
+    final speicher = AppSpeicher.imSpeicher();
+    final jetzt = DateTime.now();
+    final a = _r(41, jetzt.add(const Duration(hours: 2)), jetzt.add(const Duration(hours: 4)));
+    final c = _r(42, jetzt.add(const Duration(days: 1)), jetzt.add(const Duration(days: 1, hours: 2)));
+    final gleich = _r(43, jetzt.add(const Duration(minutes: 5)), jetzt.add(const Duration(hours: 1)));
+    await erinnerungenAbgleichen([a, c, gleich], speicher, jetzt: jetzt);
+    expect(b.map((x) => x.id).toSet(), {erinnerungsId(41), erinnerungsId(42)}, reason: 'in 5 Minuten: zu spaet fuer 15 Minuten vorher');
+    final e = b.firstWhere((x) => x.id == erinnerungsId(41));
+    expect(e.wann, a.von.subtract(const Duration(minutes: 15)));
+    expect(e.titel, 'Waschküche in 15 Minuten');
+    expect(e.ziel, 'meine/41');
+    // 42 storniert: Erinnerung weg
+    await erinnerungenAbgleichen([a], speicher, jetzt: jetzt);
+    expect(b.map((x) => x.id).toSet(), {erinnerungsId(41)});
+    await erinnerungenEntfernen(speicher);
+    expect(b, isEmpty);
   });
 
   test('Regeln wie die API', () {

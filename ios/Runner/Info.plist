@@ -72,5 +72,14 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- rosenweg_basis HintergrundAbfrage: Erinnerungen abgleichen (BGAppRefreshTask) -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>ch.rosenweg4303.waschkueche.abfrage</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
 </dict>
 </plist>

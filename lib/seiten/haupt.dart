@@ -4,10 +4,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:rosenweg_basis/rosenweg_basis.dart';
 
+import '../app.dart';
 import '../erinnerung.dart';
 import '../stand.dart';
 import '../wasch_api.dart';
 import 'belegung.dart';
+import 'reservation_ansicht.dart';
 import 'meine.dart';
 import 'verwalten.dart';
 
@@ -37,7 +39,14 @@ class Haupt extends StatefulWidget {
 }
 
 class _HauptState extends State<Haupt> {
-  late final WaschStand _stand = WaschStand(WaschApi(widget.sitzung.api), jetzt: widget.jetzt);
+  late final WaschStand _stand = WaschStand(
+    WaschApi(widget.sitzung.api),
+    jetzt: widget.jetzt,
+    // geteilte Telefone: die Person wechselt – keine Erinnerung fuer die vorige
+    erinnerungen: !widget.sitzung.geteiltesTelefon && !attrappe,
+  );
+  StreamSubscription<String>? _angetippt;
+  String _geplant = '';
   Timer? _uhr;
   AppLifecycleListener? _leben;
   int _minuten = 0;
@@ -51,6 +60,11 @@ class _HauptState extends State<Haupt> {
       _stand.laden();
     });
     _stand.addListener(_meldenWennBald);
+    _stand.addListener(_erinnerungenPlanen);
+    _angetippt = Benachrichtigung.angetippt.listen(_oeffnen);
+    Benachrichtigung.startZiel().then((z) {
+      if (z != null) _oeffnen(z);
+    });
     _uhr = Timer.periodic(const Duration(minutes: 1), (_) {
       // alle 5 Minuten die eigenen Termine neu (z. B. im Web storniert)
       if (++_minuten % 5 == 0) {
@@ -67,8 +81,31 @@ class _HauptState extends State<Haupt> {
     _uhr?.cancel();
     _leben?.dispose();
     _stand.removeListener(_meldenWennBald);
+    _stand.removeListener(_erinnerungenPlanen);
+    _angetippt?.cancel();
     _stand.dispose();
     super.dispose();
+  }
+
+  /// Nach jeder Aenderung der eigenen Termine die Benachrichtigungen neu
+  /// planen (nur wenn sich etwas geaendert hat, nicht bei jedem Ticken).
+  Future<void> _erinnerungenPlanen() async {
+    if (!_stand.erinnerungen || _stand.raeume == null) return;
+    final zeichen = [for (final r in _stand.meine) '${r.id}@${r.von.millisecondsSinceEpoch}'].join(',');
+    if (zeichen == _geplant) return;
+    _geplant = zeichen;
+    await Benachrichtigung.einrichten(appAngaben);
+    await erinnerungenAbgleichen(_stand.meine, await AppSpeicher.app('hintergrund'), jetzt: _stand.jetzt());
+  }
+
+  /// Benachrichtigung angetippt (`meine/<id>`): die Reservation zeigen.
+  Future<void> _oeffnen(String ziel) async {
+    final id = int.tryParse(ziel.startsWith('meine/') ? ziel.substring(6) : '');
+    if (id == null) return;
+    if (_stand.raeume == null) await _stand.laden();
+    final r = [for (final x in _stand.meine) if (x.id == id) x];
+    if (r.isEmpty || !mounted) return;
+    await zeigeReservation(context, stand: _stand, reservation: r.first, eigene: true);
   }
 
   /// Einmal je Termin: „In 10 Minuten: Waschküche 1, 14:00–16:00.“
@@ -144,6 +181,9 @@ class _Menue extends StatelessWidget {
               await zeigeUeber(context, sitzung.app);
             case 'abmelden':
               if (await frage(context, 'Abmelden?', 'Danach musst du dich neu anmelden.', ja: 'Abmelden')) {
+                // keine Erinnerungen und keine Abfrage mehr fuer diese Person
+                await erinnerungenEntfernen(await AppSpeicher.app('hintergrund'));
+                await HintergrundAbfrage.abmelden(sitzung.app);
                 await sitzung.abmelden();
               }
           }
