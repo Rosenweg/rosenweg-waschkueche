@@ -5,7 +5,7 @@ publish_to: 'none'
 # version: x.y.z+Baunummer. Ein Merge auf main mit einer NEUEN Version (Tag
 # vx.y.z gibt es noch nicht) baut alle Plattformen und veroeffentlicht sie
 # (GitHub-Release, /apps). Unveraenderte Version = nur CI, kein Release.
-version: 0.1.0+1
+version: 1.0.0+1
 
 environment:
   sdk: ^3.13.4
@@ -21,8 +21,9 @@ dependencies:
   rosenweg_basis:
     git:
       url: https://github.com/Rosenweg/rosenweg-basis.git
-      # fester Tag (mit Updater und iOS-MainActor-Fix); neue Basis = neuer Tag
-      ref: v0.6.2
+      # bis zum Tag v0.7.0 (Wochenraster, rosenweg-basis PR #27) der Commit
+      # des PR-Zweigs; nach Merge und Tag: ref: v0.7.0
+      ref: 3b14fd9fcd4bc74b20fb01d543370dac19eafc38
 
 dev_dependencies:
   flutter_test:

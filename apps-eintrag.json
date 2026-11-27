@@ -5,8 +5,8 @@
   "repo": "Rosenweg/rosenweg-waschkueche",
   "paket": "ch.rosenweg4303.waschkueche",
   "logo": "/img/apps/rosenweg-waschkueche.png",
-  "reihenfolge": 100,
-  "text": "Waschküche reservieren, Erinnerung an die eigenen Termine; für den Ausschuss Räume, Nutzungen, Abrechnung und Preis.",
-  "fuer": "",
+  "reihenfolge": 60,
+  "text": "Waschküche reservieren: Belegung als Wochenraster, freie Zeit antippen, einmal oder jede Woche; eigene Termine stornieren, Erinnerung beim Öffnen. Für den Ausschuss STWEG 3: Räume, Nutzungen, Abrechnung und Preis.",
+  "fuer": "Für die Bewohnerinnen und Bewohner einer STWEG mit Waschküche (heute STWEG 3, Rosenweg 9). Verwalten mit dem Recht „Waschküche-Admin“.",
   "technik": false
 }

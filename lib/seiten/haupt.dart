@@ -1,58 +1,134 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:rosenweg_basis/rosenweg_basis.dart';
 
-import 'eintraege.dart';
+import '../erinnerung.dart';
+import '../stand.dart';
+import '../wasch_api.dart';
+import 'belegung.dart';
+import 'meine.dart';
+import 'verwalten.dart';
 
-/// Die App nach der Anmeldung. Das Geruest aus rosenweg_basis legt die
-/// Bereiche ([GeruestZiel]) auf dem Handy unten und am Desktop (ab 840 px,
-/// Stationen, Laptops) links als Leiste ab; der Inhalt bleibt am Desktop
-/// mittig begrenzt.
+/// Seitenrecht der Verwaltung, wie im Portal (Rechteverwaltung).
+const verwaltenRecht = 'waschküche-admin';
+
+/// Die App nach der Anmeldung. Bereiche – auf dem Handy unten, am Computer
+/// links:
 ///
-/// Hier die eigenen Bereiche eintragen. Die Vorlage zeigt drei: eine
-/// Uebersicht, "Einträge" (Bausteine Liste, Formular, Rechte – siehe
-/// eintraege.dart) und "Mein Konto" (GET /api/auth/me, als Beispiel fuer
-/// einen API-Aufruf mit Laden, Fehler und Nochmals).
-class Haupt extends StatelessWidget {
-  const Haupt({super.key, required this.sitzung});
+///  * Belegung: Wochenraster des Raums, freie Zeit antippen = reservieren
+///  * Meine: eigene kommende Reservationen, stornieren (auch ganze Serie)
+///  * Verwalten (nur mit „waschküche-admin“ lesen; Technik/Praesident
+///    immer): Uebersicht, Raeume, Nutzungen, Abrechnung, Preis
+///
+/// Erinnerung ohne Push: beim Oeffnen und bei jeder Rueckkehr in die App
+/// fragt sie die eigenen Termine ab, jede Minute rechnet sie den Hinweis
+/// oben neu, kurz vor Beginn kommt eine Meldung (solange die App offen ist).
+class Haupt extends StatefulWidget {
+  const Haupt({super.key, required this.sitzung, this.jetzt});
   final RosenwegSitzung sitzung;
+
+  /// Fuer Tests und Bildschirmfotos; sonst die Uhr.
+  final DateTime Function()? jetzt;
+
+  @override
+  State<Haupt> createState() => _HauptState();
+}
+
+class _HauptState extends State<Haupt> {
+  late final WaschStand _stand = WaschStand(WaschApi(widget.sitzung.api), jetzt: widget.jetzt);
+  Timer? _uhr;
+  AppLifecycleListener? _leben;
+  int _minuten = 0;
+  final _gemeldet = <int>{};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.sitzung.rechte.laden().ignore();
+      _stand.laden();
+    });
+    _stand.addListener(_meldenWennBald);
+    _uhr = Timer.periodic(const Duration(minutes: 1), (_) {
+      // alle 5 Minuten die eigenen Termine neu (z. B. im Web storniert)
+      if (++_minuten % 5 == 0) {
+        _stand.meineLaden();
+      } else {
+        _stand.ticken();
+      }
+    });
+    _leben = AppLifecycleListener(onResume: _stand.meineLaden);
+  }
+
+  @override
+  void dispose() {
+    _uhr?.cancel();
+    _leben?.dispose();
+    _stand.removeListener(_meldenWennBald);
+    _stand.dispose();
+    super.dispose();
+  }
+
+  /// Einmal je Termin: „In 10 Minuten: Waschküche 1, 14:00–16:00.“
+  void _meldenWennBald() {
+    final e = _stand.erinnerung;
+    if (e == null || e.art != ErinnerungsArt.bald || !_gemeldet.add(e.reservation.id)) return;
+    if (mounted) zeigeMeldung(context, e.text);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final app = sitzung.app;
-    return RosenwegGeruest(
-      titel: Text(app.name),
-      logo: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Image.asset('assets/logo/rosenweg-waschkueche-klein.png', semanticLabel: 'Logo'),
-      ),
-      aktionen: [_Menue(sitzung: sitzung)],
-      ziele: [
-        GeruestZiel(
-          titel: 'Übersicht',
-          symbol: Icons.home_outlined,
-          gewaehltSymbol: Icons.home,
-          seite: (_) => UebersichtSeite(sitzung: sitzung),
-        ),
-        GeruestZiel(
-          titel: 'Einträge',
-          symbol: Icons.list_alt_outlined,
-          gewaehltSymbol: Icons.list_alt,
-          seite: (_) => EintraegeSeite(sitzung: sitzung),
-        ),
-        GeruestZiel(
-          titel: 'Mein Konto',
-          symbol: Icons.person_outline,
-          gewaehltSymbol: Icons.person,
-          seite: (_) => KontoSeite(api: sitzung.api),
-        ),
-      ],
+    final s = widget.sitzung;
+    return ListenableBuilder(
+      listenable: s.rechte,
+      builder: (context, _) {
+        final r = s.rechte.stand;
+        final verwalten = r?.zugriff(verwaltenRecht) ?? Zugriff.keiner;
+        return RosenwegGeruest(
+          titel: Text(s.app.name),
+          logo: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Image.asset('assets/logo/rosenweg-waschkueche-klein.png', semanticLabel: 'Logo'),
+          ),
+          // das Raster braucht die Breite (sieben Tage)
+          maxBreite: 1100,
+          aktionen: [_Menue(sitzung: s)],
+          ziele: [
+            GeruestZiel(
+              titel: 'Belegung',
+              symbol: Icons.calendar_view_week_outlined,
+              gewaehltSymbol: Icons.calendar_view_week,
+              seite: (_) => BelegungSeite(stand: _stand, verwaltung: r?.alles ?? false),
+            ),
+            GeruestZiel(
+              titel: 'Meine',
+              symbol: Icons.event_available_outlined,
+              gewaehltSymbol: Icons.event_available,
+              seite: (_) => MeineSeite(stand: _stand),
+            ),
+            if (verwalten.mindestens(Zugriff.lesen))
+              GeruestZiel(
+                titel: 'Verwalten',
+                symbol: Icons.tune_outlined,
+                gewaehltSymbol: Icons.tune,
+                seite: (_) => VerwaltenSeite(
+                  api: _stand.api,
+                  schreiben: verwalten.mindestens(Zugriff.schreiben),
+                  tuerEinstellen: r?.alles ?? false,
+                  jetzt: widget.jetzt,
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
 
-/// Menue oben rechts: Anmeldung (echter Stand aus der Basis), Ueber, Abmelden.
-/// Auf geteilten Telefonen meldet Rosenweg Geraet ab, dann gibt es den Punkt nicht.
+/// Menue oben rechts: Anmeldung (echter Stand), Ueber, Abmelden (nicht auf
+/// geteilten Telefonen – dort meldet Rosenweg Geraet ab).
 class _Menue extends StatelessWidget {
   const _Menue({required this.sitzung});
   final RosenwegSitzung sitzung;
@@ -80,82 +156,24 @@ class _Menue extends StatelessWidget {
       );
 }
 
-class UebersichtSeite extends StatelessWidget {
-  const UebersichtSeite({super.key, required this.sitzung});
-  final RosenwegSitzung sitzung;
+/// Hinweis oben: laufender oder naechster eigener Termin (bis 36 Stunden).
+class ErinnerungsLeiste extends StatelessWidget {
+  const ErinnerungsLeiste({super.key, required this.stand});
+  final WaschStand stand;
 
   @override
-  Widget build(BuildContext context) => ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text('Willkommen${sitzung.name != null ? ', ${sitzung.name}' : ''}',
-              style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 8),
-          Text(sitzung.app.beschreibung),
-          const SizedBox(height: 16),
-          const Hinweis('Hier kommt der Inhalt der App hin. Seiten in lib/seiten/, '
-              'API-Aufrufe über sitzung.api, Vorführdaten in lib/attrappe.dart.'),
-        ],
-      );
-}
-
-/// Beispiel fuer einen API-Aufruf: laden, Fehler mit "Nochmals", Inhalt.
-class KontoSeite extends StatefulWidget {
-  const KontoSeite({super.key, required this.api});
-  final RosenwegApi api;
-
-  @override
-  State<KontoSeite> createState() => _KontoSeiteState();
-}
-
-class _KontoSeiteState extends State<KontoSeite> {
-  Map<String, dynamic>? _ich;
-  Object? _fehler;
-
-  @override
-  void initState() {
-    super.initState();
-    _laden();
-  }
-
-  Future<void> _laden() async {
-    setState(() {
-      _fehler = null;
-      _ich = null;
-    });
-    try {
-      final j = await widget.api.objekt('/api/auth/me');
-      final u = j['user'];
-      if (mounted) setState(() => _ich = u is Map<String, dynamic> ? u : j);
-    } catch (e) {
-      if (mounted) setState(() => _fehler = e);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_fehler != null) return FehlerAnzeige(text: '$_fehler', nochmals: _laden);
-    final ich = _ich;
-    if (ich == null) return const LadeAnzeige();
-    final gruppen = (ich['groups'] as List?)?.join(', ') ?? '';
-    return RefreshIndicator(
-      onRefresh: _laden,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Abschnitt(
-            titel: 'Angemeldet als',
-            symbol: Icons.badge_outlined,
-            kind: Column(
-              children: [
-                ListTile(title: const Text('Name'), subtitle: Text('${ich['name'] ?? '–'}')),
-                ListTile(title: const Text('E-Mail'), subtitle: Text('${ich['email'] ?? '–'}')),
-                if (gruppen.isNotEmpty) ListTile(title: const Text('Gruppen'), subtitle: Text(gruppen)),
-              ],
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: stand,
+        builder: (context, _) {
+          final e = stand.erinnerung;
+          if (e == null) return const SizedBox.shrink();
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Semantics(
+              liveRegion: true,
+              child: Hinweis(e.text, art: e.art == ErinnerungsArt.demnaechst ? HinweisArt.info : HinweisArt.gut),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          );
+        },
+      );
 }

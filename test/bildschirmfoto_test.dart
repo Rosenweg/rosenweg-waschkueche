@@ -48,14 +48,19 @@ void main() {
     if (ziel != null) await schriften();
   });
 
+  // fester Zeitpunkt: Mittwoch, 25.11.2026, 10:20 (Vorfuehrdaten relativ dazu)
+  DateTime uhr() => DateTime(2026, 11, 25, 10, 20);
+
   Future<void> zeigen(WidgetTester t, Size groesse, {Phase? phase}) async {
     t.view.physicalSize = groesse * 2;
     t.view.devicePixelRatio = 2;
     addTearDown(t.view.reset);
-    final s = RosenwegSitzung(appAngaben, transport: Attrappe());
+    final s = RosenwegSitzung(appAngaben, transport: Attrappe(jetzt: uhr));
     await s.starten();
     if (phase != null) s.phase = phase;
-    await t.pumpWidget(RepaintBoundary(child: RosenwegRahmen(sitzung: s, inhalt: (_) => Haupt(sitzung: s))));
+    // alten Baum weg: sonst bleibt Haupt mit der vorigen Sitzung stehen
+    await t.pumpWidget(const SizedBox());
+    await t.pumpWidget(RepaintBoundary(child: RosenwegRahmen(sitzung: s, inhalt: (_) => Haupt(sitzung: s, jetzt: uhr))));
     await t.runAsync(() => precacheImage(appAngaben.logo!, t.element(find.byType(MaterialApp))));
     await t.runAsync(() => precacheImage(const AssetImage('assets/logo/rosenweg-waschkueche-klein.png'), t.element(find.byType(MaterialApp))));
     await t.pumpAndSettle();
@@ -64,8 +69,19 @@ void main() {
   testWidgets('Fotos', (t) async {
     await zeigen(t, const Size(412, 860));
     await foto(t, 'rosenweg-waschkueche-handy.png');
-    await zeigen(t, const Size(1200, 800));
+    await t.tap(find.text('Reservieren'));
+    await t.pumpAndSettle();
+    await foto(t, 'rosenweg-waschkueche-reservieren.png');
+    await t.tap(find.byType(CloseButton));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Meine'));
+    await t.pumpAndSettle();
+    await foto(t, 'rosenweg-waschkueche-meine.png');
+    await zeigen(t, const Size(1280, 800));
     await foto(t, 'rosenweg-waschkueche-station.png');
+    await t.tap(find.text('Verwalten'));
+    await t.pumpAndSettle();
+    await foto(t, 'rosenweg-waschkueche-verwalten.png');
     await zeigen(t, const Size(412, 860), phase: Phase.abgemeldet);
     await foto(t, 'rosenweg-waschkueche-anmelden.png');
   }, skip: ziel == null);
