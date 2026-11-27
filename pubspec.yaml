@@ -21,9 +21,8 @@ dependencies:
   rosenweg_basis:
     git:
       url: https://github.com/Rosenweg/rosenweg-basis.git
-      # bis zum Tag v0.7.0 (Wochenraster, rosenweg-basis PR #27) der Commit
-      # des PR-Zweigs; nach Merge und Tag: ref: v0.7.0
-      ref: 3b14fd9fcd4bc74b20fb01d543370dac19eafc38
+      # fester Tag (Wochenraster); neue Basis = neuer Tag
+      ref: v0.7.0
 
 dev_dependencies:
   flutter_test:
