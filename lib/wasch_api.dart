@@ -74,16 +74,22 @@ class WaschApi {
     return [for (final s in _liste(l)) ?Sperrzeit.aus(s)];
   }
 
-  /// Rueckgabe: wie viele bestehende Reservationen in die Sperrzeit fallen.
-  Future<int> sperren(int raum, DateTime von, DateTime bis, String grund) async {
-    final j = _objekt(await api.post('/api/wasch/sperrzeiten', {
-      'room_id': raum,
-      'start_time': apiZeit(von),
-      'end_time': apiZeit(bis),
-      'grund': grund,
-    }));
-    final n = j['betroffene_reservationen'];
-    return n is int ? n : 0;
+  Map<String, Object?> _sperre(int raum, DateTime von, DateTime bis, String grund) =>
+      {'room_id': raum, 'start_time': apiZeit(von), 'end_time': apiZeit(bis), 'grund': grund};
+
+  /// Wen eine neue Sperrzeit trifft (nichts gespeichert): diese Reservationen
+  /// wuerden storniert und die Personen benachrichtigt.
+  Future<List<Betroffen>> sperrVorschau(int raum, DateTime von, DateTime bis, String grund) async {
+    final j = _objekt(await api.post('/api/wasch/sperrzeiten', {..._sperre(raum, von, bis, grund), 'vorschau': true}));
+    return [for (final b in _liste(j['betroffen'])) ?Betroffen.aus(b)];
+  }
+
+  /// Sperren (bestaetigt): storniert die ueberschneidenden Reservationen und
+  /// benachrichtigt die Personen. Rueckgabe: (storniert, benachrichtigt).
+  Future<(int, int)> sperren(int raum, DateTime von, DateTime bis, String grund) async {
+    final j = _objekt(await api.post('/api/wasch/sperrzeiten', {..._sperre(raum, von, bis, grund), 'bestaetigt': true}));
+    int zahl(Object? v) => v is int ? v : 0;
+    return (zahl(j['storniert']), zahl(j['benachrichtigt']));
   }
 
   Future<void> sperreAufheben(int id) => api.delete('/api/wasch/sperrzeiten/$id');

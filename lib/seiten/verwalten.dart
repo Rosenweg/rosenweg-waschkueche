@@ -527,10 +527,61 @@ class _SperrSeiteState extends State<_SperrSeite> {
     final von = _um(_vonTag, _von), bis = _um(_bisTag, _bis);
     if (_raum == null) throw ApiFehler(400, 'Bitte eine Waschküche wählen.', null);
     if (!bis.isAfter(von)) throw ApiFehler(400, 'Das Ende muss nach dem Beginn liegen.', null);
-    final n = await widget.api.sperren(_raum!, von, bis, _grund.text.trim());
-    if (mounted) {
-      zeigeMeldung(context, n == 0 ? 'Gesperrt.' : 'Gesperrt. Achtung: $n ${n == 1 ? 'Reservation liegt' : 'Reservationen liegen'} in dieser Zeit.');
+    final grund = _grund.text.trim();
+    // Erst zeigen, wen es trifft: diese Reservationen werden storniert
+    final betroffen = await widget.api.sperrVorschau(_raum!, von, bis, grund);
+    if (betroffen.isNotEmpty && mounted && !await _nachfragen(betroffen)) {
+      throw ApiFehler(0, 'Abgebrochen – nichts gesperrt.', null);
     }
+    final (storniert, benachrichtigt) = await widget.api.sperren(_raum!, von, bis, grund);
+    if (mounted) {
+      zeigeMeldung(
+        context,
+        storniert == 0
+            ? 'Gesperrt.'
+            : 'Gesperrt. $storniert ${storniert == 1 ? 'Reservation' : 'Reservationen'} storniert, '
+                '$benachrichtigt ${benachrichtigt == 1 ? 'Person' : 'Personen'} benachrichtigt.',
+      );
+    }
+  }
+
+  Future<bool> _nachfragen(List<Betroffen> l) async {
+    final n = l.length;
+    final r = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('$n ${n == 1 ? 'Reservation' : 'Reservationen'} stornieren?'),
+        content: SizedBox(
+          width: 420,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Die Sperrzeit storniert diese Reservationen (bei Serien nur diese Termine). '
+                'Die Personen bekommen eine E-Mail mit Grund und Zeitraum.'),
+            const SizedBox(height: 12),
+            Flexible(
+              child: ListView(shrinkWrap: true, children: [
+                for (final b in l)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(b.woechentlich ? Icons.repeat : Icons.event_busy_outlined),
+                    title: Text('${b.person ?? '–'}${b.wohnung == null ? '' : ' (${b.wohnung})'}'),
+                    subtitle: Text(_zeitraum(b.von, b.bis)),
+                  ),
+              ]),
+            ),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Abbrechen')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Sperren und stornieren'),
+          ),
+        ],
+      ),
+    );
+    return r ?? false;
   }
 
   @override
@@ -565,7 +616,8 @@ class _SperrSeiteState extends State<_SperrSeite> {
               Expanded(child: ZeitFeld(titel: 'Uhrzeit', wert: _bis, pflicht: true, geaendert: (v) => setState(() => _bis = v ?? _bis))),
             ]),
             TextFeld(name: 'grund', titel: 'Grund', controller: _grund, pflicht: true, hinweis: 'z. B. Reinigung, Wartung Waschmaschine', pruefen: Pruefen.hoechstens(200)),
-            const Hinweis('Bestehende Reservationen bleiben; die Meldung nennt, wie viele in die Sperrzeit fallen.'),
+            const Hinweis('Reservationen in dieser Zeit werden storniert (bei Serien nur diese Termine) und die Personen '
+                'per E-Mail benachrichtigt. Vorher zeigt die App, wen es trifft.'),
           ],
         ),
       );

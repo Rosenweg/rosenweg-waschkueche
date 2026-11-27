@@ -53,9 +53,11 @@ Ausschuss oder Verwaltung der STWEG mit Waschküche; sonst steht ihr Satz da.
 - Übersicht: Räume, Nutzungen, Verbrauch, Einnahmen, wer am meisten wäscht.
 - Räume: Name, Standort, Energiezähler; die Tür (UniFi Access) stellt nur die
   Technik ein. Neue Räume gehören zu STWEG 3.
-- Sperrzeiten: „Sperren“ – Raum, von, bis, Grund. Bestehende Reservationen
-  bleiben; die Meldung sagt, wie viele in die Sperrzeit fallen. „Aufheben“
-  gibt die Zeit wieder frei.
+- Sperrzeiten: „Sperren“ – Raum, von, bis, Grund. Liegen Reservationen in
+  dieser Zeit, zeigt die App zuerst, wen es trifft, und fragt nach. Bestätigt
+  werden diese Reservationen storniert (bei Serien nur diese Termine), und die
+  Personen bekommen eine E-Mail mit Grund und Zeitraum. „Aufheben“ gibt die
+  Zeit wieder frei (stornierte Reservationen kommen nicht zurück).
 - Nutzungen: je Monat, mit Dauer, Verbrauch, Kosten.
 - Abrechnung: Kosten je Person und Monat (Standard: Vormonat). Jeden
   vergangenen Monat kann man per E-Mail abrechnen, aber nur einmal.

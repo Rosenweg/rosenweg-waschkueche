@@ -216,6 +216,25 @@ class Attrappe implements Transport {
         if (!_darfAendern) return _darfVerwalten ? _nurLesen : _keinRecht;
         if ('${k['grund'] ?? ''}'.trim().isEmpty) return (status: 400, json: {'error': 'Bitte einen Grund angeben', 'feld': 'grund'});
         final von = DateTime.parse('${k['start_time']}'), bis = DateTime.parse('${k['end_time']}');
+        final treffer = [
+          for (final r in offen)
+            if (r['room_id'] == k['room_id'] && _z(r['start_time']).isBefore(bis) && _z(r['end_time']).isAfter(von)) r,
+        ];
+        final betroffen = [
+          for (final r in treffer)
+            {
+              'id': r['id'],
+              'start_time': r['start_time'],
+              'end_time': r['end_time'],
+              'wiederkehrend': r['recurring'] == true,
+              'user_name': _personen[r['user_id']]?.$1,
+              'wohnung': _personen[r['user_id']]?.$2,
+            },
+        ];
+        if (k['vorschau'] == true) return (status: 200, json: {'vorschau': true, 'betroffen': betroffen});
+        if (treffer.isNotEmpty && k['bestaetigt'] != true) {
+          return (status: 409, json: {'error': 'Bitte bestätigen', 'bestaetigung_noetig': true, 'betroffen': betroffen});
+        }
         _sperrzeiten.add({
           'id': _sperrzeiten.length + 10,
           'room_id': k['room_id'],
@@ -223,8 +242,11 @@ class Attrappe implements Transport {
           'end_time': bis.toUtc().toIso8601String(),
           'grund': '${k['grund']}'.trim(),
         });
-        final n = offen.where((r) => r['room_id'] == k['room_id'] && _z(r['start_time']).isBefore(bis) && _z(r['end_time']).isAfter(von)).length;
-        return (status: 200, json: {..._sperrzeiten.last, 'betroffene_reservationen': n});
+        for (final r in treffer) {
+          r['cancelled'] = true;
+        }
+        final personen = {for (final r in treffer) r['user_id']};
+        return (status: 200, json: {..._sperrzeiten.last, 'storniert': treffer.length, 'benachrichtigt': personen.length, 'betroffen': betroffen});
       case 'GET /api/wasch/admin/stats':
         return (
           status: 200,

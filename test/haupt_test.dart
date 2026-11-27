@@ -209,13 +209,23 @@ void main() {
     await t.tap(find.text('Sperrzeiten'));
     await t.pumpAndSettle();
     expect(find.text('Reinigung'), findsOneWidget);
+    // eine Reservation morgen 10–11 Uhr, die die Sperrzeit trifft
+    await a.senden('POST', '/api/wasch/reservations', koerper: {'room_id': 1, 'start_time': '2026-11-26T10:00:00', 'end_time': '2026-11-26T11:00:00'});
     await t.tap(find.text('Sperren'));
     await t.pumpAndSettle();
     await t.enterText(find.widgetWithText(TextFormField, 'Grund *'), 'Wartung Trockner');
     await t.tap(find.byKey(const Key('formular-speichern')));
+    // der Knopf dreht, solange die Rueckfrage offen ist: nicht auf Ruhe warten
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 500));
+    // Vorschau: wen es trifft, nachfragen
+    expect(find.text('1 Reservation stornieren?'), findsOneWidget);
+    expect(find.text('Erika Muster (EG.1)'), findsOneWidget);
+    await t.tap(find.text('Sperren und stornieren'));
     await t.pumpAndSettle();
-    final post = a.anfragen.lastWhere((r) => r.methode == 'POST' && r.pfad == '/api/wasch/sperrzeiten').koerper as Map;
-    expect(post, {'room_id': 1, 'start_time': '2026-11-26T08:00:00', 'end_time': '2026-11-26T12:00:00', 'grund': 'Wartung Trockner'});
+    final posts = [for (final r in a.anfragen) if (r.methode == 'POST' && r.pfad == '/api/wasch/sperrzeiten') r.koerper as Map];
+    expect(posts.first['vorschau'], isTrue);
+    expect(posts.last, {'room_id': 1, 'start_time': '2026-11-26T08:00:00', 'end_time': '2026-11-26T12:00:00', 'grund': 'Wartung Trockner', 'bestaetigt': true});
     expect(find.text('Wartung Trockner'), findsOneWidget);
 
     await t.ensureVisible(find.text('Einstellungen'));

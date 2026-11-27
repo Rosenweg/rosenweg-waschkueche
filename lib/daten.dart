@@ -152,6 +152,22 @@ class Sperrzeit {
   }
 }
 
+/// Reservation, die eine neue Sperrzeit stornieren wuerde (Vorschau der API).
+class Betroffen {
+  const Betroffen({required this.von, required this.bis, this.person, this.wohnung, this.woechentlich = false});
+  final DateTime von;
+  final DateTime bis;
+  final String? person;
+  final String? wohnung;
+  final bool woechentlich;
+
+  static Betroffen? aus(Map<String, dynamic> j) {
+    final von = zeitAus(j['start_time']), bis = zeitAus(j['end_time']);
+    if (von == null || bis == null) return null;
+    return Betroffen(von: von, bis: bis, person: _text(j['user_name']), wohnung: _text(j['wohnung']), woechentlich: j['wiederkehrend'] == true);
+  }
+}
+
 /// Einstellungen der Waschkueche – GET /api/wasch/settings (wirksame Werte).
 class Einstellungen {
   const Einstellungen({this.preisProKwh = '0.30', this.maxTage = 90, this.maxOffen = 120, this.autoAbrechnung = true});
