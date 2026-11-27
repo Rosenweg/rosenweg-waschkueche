@@ -6,85 +6,193 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rosenweg_basis/rosenweg_basis.dart';
 import 'package:rosenweg_waschkueche/app.dart';
 import 'package:rosenweg_waschkueche/attrappe.dart';
+import 'package:rosenweg_waschkueche/daten.dart';
+import 'package:rosenweg_waschkueche/erinnerung.dart';
 import 'package:rosenweg_waschkueche/seiten/haupt.dart';
+
+// Mittwoch, 25.11.2026, 10:20
+final _jetzt = DateTime(2026, 11, 25, 10, 20);
+DateTime _uhr() => _jetzt;
+
+Reservation _r(int id, DateTime von, DateTime bis) => Reservation(id: id, raumId: 1, von: von, bis: bis, raumName: 'Waschküche 1');
 
 void main() {
   setUpAll(() => Protokoll.nurKonsole = true);
 
-  Future<Attrappe> zeigen(WidgetTester t, Size groesse) async {
+  Future<Attrappe> zeigen(WidgetTester t, Size groesse, {Attrappe? attrappe}) async {
     t.view.physicalSize = groesse;
     t.view.devicePixelRatio = 1;
     addTearDown(t.view.reset);
-    final a = Attrappe();
+    final a = attrappe ?? Attrappe(jetzt: _uhr);
     final s = RosenwegSitzung(appAngaben, transport: a);
     await s.starten();
-    await t.pumpWidget(RosenwegRahmen(sitzung: s, inhalt: (_) => Haupt(sitzung: s)));
+    await t.pumpWidget(RosenwegRahmen(sitzung: s, inhalt: (_) => Haupt(sitzung: s, jetzt: _uhr)));
     await t.pumpAndSettle();
     return a;
   }
 
-  testWidgets('Handy: Navigation unten, Konto laedt /api/auth/me', (t) async {
-    final a = await zeigen(t, const Size(412, 860));
+  group('Erinnerung', () {
+    test('laeuft, gleich, demnaechst, zu weit weg', () {
+      expect(Erinnerung.fuer([_r(1, DateTime(2026, 11, 25, 10), DateTime(2026, 11, 25, 12))], _jetzt)!.text,
+          'Deine Reservation läuft: Waschküche 1 bis 12:00.');
+      final bald = Erinnerung.fuer([_r(2, DateTime(2026, 11, 25, 10, 30), DateTime(2026, 11, 25, 12))], _jetzt)!;
+      expect(bald.art, ErinnerungsArt.bald);
+      expect(bald.text, 'In 10 Minuten: Waschküche 1, 10:30–12:00.');
+      expect(Erinnerung.fuer([_r(3, DateTime(2026, 11, 26, 8), DateTime(2026, 11, 26, 10))], _jetzt)!.text,
+          'Morgen 08:00–10:00: Waschküche 1.');
+      expect(Erinnerung.fuer([_r(4, DateTime(2026, 11, 28, 8), DateTime(2026, 11, 28, 10))], _jetzt), isNull);
+      // vorbei zaehlt nicht, der naechste schon
+      expect(
+          Erinnerung.fuer([
+            _r(5, DateTime(2026, 11, 25, 7), DateTime(2026, 11, 25, 9)),
+            _r(6, DateTime(2026, 11, 25, 18), DateTime(2026, 11, 25, 20)),
+          ], _jetzt)!
+              .text,
+          'Heute 18:00–20:00: Waschküche 1.');
+    });
+
+    test('Tagwort', () {
+      expect(tagWort(DateTime(2026, 11, 27, 9), _jetzt), 'Übermorgen');
+      expect(tagWort(DateTime(2026, 11, 30, 9), _jetzt), 'Mo 30.11.');
+    });
+  });
+
+  test('Regeln wie die API', () {
+    DateTime h(int t, int s, [int m = 0]) => DateTime(2026, 11, t, s, m);
+    expect(Regeln.pruefen(h(25, 12), h(25, 14), jetzt: _jetzt), isNull);
+    expect(Regeln.pruefen(h(25, 12), h(25, 12, 20), jetzt: _jetzt), 'Mindestens 30 Minuten.');
+    expect(Regeln.pruefen(h(25, 12), h(25, 11), jetzt: _jetzt), 'Das Ende muss nach dem Beginn liegen.');
+    expect(Regeln.pruefen(h(25, 6), h(25, 19), jetzt: _jetzt), 'Höchstens 12 Stunden am Stück.');
+    expect(Regeln.pruefen(h(24, 8), h(24, 10), jetzt: _jetzt), 'Dieser Zeitpunkt ist schon vorbei.');
+    expect(Regeln.pruefen(h(24, 8), h(24, 10), jetzt: _jetzt, verwaltung: true), isNull);
+    expect(Regeln.pruefen(DateTime(2027, 3, 1, 8), DateTime(2027, 3, 1, 10), jetzt: _jetzt), 'Höchstens 90 Tage im Voraus.');
+    expect(apiZeit(DateTime(2026, 11, 5, 8, 0)), '2026-11-05T08:00:00');
+  });
+
+  testWidgets('Handy: Belegung mit eigener Reservation, Erinnerung oben, Meine', (t) async {
+    await zeigen(t, const Size(412, 860));
     expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.byType(NavigationRail), findsNothing);
-    expect(find.textContaining('Willkommen'), findsOneWidget);
-    await t.tap(find.text('Mein Konto'));
+    expect(find.text('Verwalten'), findsOneWidget);
+    // eigene heute 12:00–14:00 (in zwei Stunden), fremde heute 07:00–08:30
+    expect(find.text('Heute 12:00–14:00: Waschküche 1.'), findsOneWidget);
+    expect(find.text('12:00–14:00'), findsOneWidget);
+    expect(find.text('Du'), findsOneWidget);
+    expect(find.text('07:00–08:30'), findsOneWidget);
+
+    await t.tap(find.text('Meine'));
     await t.pumpAndSettle();
-    expect(find.text('erika.muster@example.org'), findsOneWidget);
-    expect(a.anfragen.any((r) => r.pfad == '/api/auth/me'), isTrue);
+    expect(find.text('12:00–14:00 · Waschküche 1'), findsOneWidget);
+    expect(find.text('09:00–11:00 · Waschküche 1'), findsWidgets);
+    expect(find.textContaining('jede Woche'), findsWidgets);
   });
 
-  testWidgets('Einträge: Liste mit Suche, Neu nur mit Schreibrecht, Fehler der API am Feld', (t) async {
+  testWidgets('Fremde Reservation: Angaben mit Person, ohne Stornieren', (t) async {
+    await zeigen(t, const Size(412, 860));
+    // beim Oeffnen steht 09:00 oben (eine Stunde vor jetzt): hinauf scrollen
+    await t.ensureVisible(find.text('07:00–08:30'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('07:00–08:30'));
+    await t.pumpAndSettle();
+    expect(find.text('Lea Probe (2.OG rechts)'), findsOneWidget);
+    expect(find.text('Stornieren'), findsNothing);
+  });
+
+  testWidgets('Reservieren: freie Zeit antippen, Formular schickt Ortszeit', (t) async {
     final a = await zeigen(t, const Size(412, 860));
-    await t.tap(find.text('Einträge'));
+    await t.tap(find.text('Reservieren'));
     await t.pumpAndSettle();
-    expect(find.text('Velokeller aufräumen'), findsOneWidget);
-    await t.enterText(find.byType(TextField).first, 'Lampe');
+    // naechste volle Stunde (11:00) bis 13:00 – ueberschneidet die eigene ab 12:00
+    expect(find.text('Dauer: 2 Std.'), findsOneWidget);
+    await t.tap(find.byKey(const Key('formular-speichern')));
     await t.pumpAndSettle();
-    expect(find.text('Velokeller aufräumen'), findsNothing);
-    expect(find.text('Lampe im Treppenhaus ersetzen'), findsOneWidget);
+    expect(find.text('Zeitraum überschneidet sich mit bestehender Reservierung'), findsOneWidget);
+    final post = a.anfragen.lastWhere((r) => r.methode == 'POST');
+    expect(post.koerper, {'room_id': 1, 'start_time': '2026-11-25T11:00:00', 'end_time': '2026-11-25T13:00:00'});
 
-    await t.tap(find.text('Neu'));
+    // jede Woche: belegte Wochen faellt die Serie aus, der Rest kommt
+    await t.tap(find.text('Jede Woche'));
     await t.pumpAndSettle();
-    await t.tap(find.text('Speichern'));
+    expect(find.text('Letzter Termin *'), findsOneWidget);
+    await t.tap(find.byKey(const Key('formular-speichern')));
     await t.pumpAndSettle();
-    expect(find.text('Bitte die markierten Felder prüfen.'), findsWidgets);
-    await t.enterText(find.byType(TextFormField), 'Velokeller aufräumen');
-    await t.tap(find.text('Speichern'));
-    await t.pumpAndSettle();
-    expect(find.text('Diesen Eintrag gibt es schon.'), findsOneWidget);
-    await t.enterText(find.byType(TextFormField), 'Neue Glühbirne');
-    await t.pump();
-    await t.tap(find.text('Speichern'));
-    await t.pumpAndSettle();
-    expect(find.text('Neuer Eintrag'), findsNothing);
-    expect(a.anfragen.where((r) => r.methode == 'POST').length, 2);
-    // neu geladen; die Suche "Lampe" gilt noch
-    await t.enterText(find.byType(TextField).first, 'Glüh');
-    await t.pumpAndSettle();
-    expect(find.text('Neue Glühbirne'), findsOneWidget);
+    expect(find.text('Reservieren'), findsOneWidget, reason: 'Seite zu, FAB wieder da');
+    expect(find.textContaining('Termine reserviert (Mittwochs 11:00–13:00)'), findsOneWidget);
+    final serie = a.anfragen.lastWhere((r) => r.methode == 'POST').koerper as Map;
+    expect(serie['recurring'], isTrue);
+    expect(serie['recurring_until'], '2027-02-25');
   });
 
-  testWidgets('Desktop (Station): Leiste links', (t) async {
-    await zeigen(t, const Size(1280, 800));
+  testWidgets('Stornieren in Meine fragt nach', (t) async {
+    final a = await zeigen(t, const Size(412, 860));
+    await t.tap(find.text('Meine'));
+    await t.pumpAndSettle();
+    await t.tap(find.byTooltip('Stornieren').first);
+    await t.pumpAndSettle();
+    expect(find.text('Reservation stornieren?'), findsOneWidget);
+    await t.tap(find.widgetWithText(FilledButton, 'Stornieren'));
+    await t.pumpAndSettle();
+    expect(a.anfragen.any((r) => r.methode == 'DELETE' && r.pfad == '/api/wasch/reservations/1'), isTrue);
+    expect(find.text('Reservation storniert.'), findsOneWidget);
+    expect(find.text('12:00–14:00 · Waschküche 1'), findsNothing);
+  });
+
+  testWidgets('Ohne Recht waschküche-admin: kein Verwalten', (t) async {
+    await zeigen(t, const Size(412, 860), attrappe: Attrappe(jetzt: _uhr, rechte: const {}, gruppen: const ['stweg3-bewohner']));
+    expect(find.text('Belegung'), findsWidgets);
+    expect(find.text('Verwalten'), findsNothing);
+  });
+
+  testWidgets('Nur lesen: Verwalten ohne Aendern', (t) async {
+    await zeigen(t, const Size(412, 860), attrappe: Attrappe(jetzt: _uhr, rechte: const {'waschküche-admin': 'read'}));
+    await t.tap(find.text('Verwalten'));
+    await t.pumpAndSettle();
+    expect(find.textContaining('Nur ansehen'), findsOneWidget);
+    expect(find.text('Max Beispiel'), findsOneWidget);
+    await t.tap(find.text('Räume'));
+    await t.pumpAndSettle();
+    expect(find.text('Waschküche 2'), findsOneWidget);
+    expect(find.text('Raum hinzufügen'), findsNothing);
+  });
+
+  testWidgets('Verwalten: Abrechnung nur fuer den Vormonat, mit Rueckfrage', (t) async {
+    final a = await zeigen(t, const Size(1280, 860));
     expect(find.byType(NavigationRail), findsOneWidget);
-    expect(find.byType(NavigationBar), findsNothing);
+    await t.tap(find.text('Verwalten'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Abrechnung'));
+    await t.pumpAndSettle();
+    expect(find.text('November 2026'), findsOneWidget);
+    expect(find.textContaining('nur der Vormonat (Oktober 2026)'), findsOneWidget);
+    await t.tap(find.byTooltip('Voriger Monat'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Abrechnung Oktober 2026 per E-Mail senden'));
+    await t.pumpAndSettle();
+    expect(find.text('Abrechnung Oktober 2026 senden?'), findsOneWidget);
+    await t.tap(find.text('Senden'));
+    await t.pumpAndSettle();
+    final run = a.anfragen.lastWhere((r) => r.pfad == '/api/wasch/admin/billing/run');
+    expect(run.koerper, {'month': '2026-10'});
   });
 
-  testWidgets('Fehler zeigt Nochmals und laedt neu', (t) async {
-    final a = await zeigen(t, const Size(412, 860));
-    a.erzwungen['GET /api/auth/me'] = (status: 503, json: {'error': 'Wartung'});
-    await t.tap(find.text('Mein Konto'));
+  testWidgets('Technik: Tuer einstellbar; Ausschuss nicht', (t) async {
+    await zeigen(t, const Size(412, 860));
+    await t.tap(find.text('Verwalten'));
     await t.pumpAndSettle();
-    expect(find.text('Nochmals'), findsOneWidget);
-    await t.tap(find.text('Nochmals'));
+    await t.tap(find.text('Räume'));
     await t.pumpAndSettle();
-    expect(find.text('erika.muster@example.org'), findsOneWidget);
+    await t.tap(find.text('Waschküche 2'));
+    await t.pumpAndSettle();
+    expect(find.text('Die Tür stellt die Technik ein.'), findsOneWidget);
+  });
+
+  testWidgets('Ohne Waschkueche: verstaendlicher Hinweis', (t) async {
+    await zeigen(t, const Size(412, 860), attrappe: Attrappe(jetzt: _uhr, rechte: const {}, ohneRaeume: true));
+    expect(find.textContaining('Für dich ist keine Waschküche eingerichtet'), findsOneWidget);
   });
 
   test('Kennung, Ordner und Logo passen zusammen', () {
-    expect(appAngaben.kennung, matches(RegExp(r'^ch\.rosenweg4303\.[a-z][a-z0-9]*$')));
-    expect(appAngaben.ordner, startsWith('rosenweg-'));
+    expect(appAngaben.kennung, 'ch.rosenweg4303.waschkueche');
+    expect(appAngaben.gruppe, RosenwegGruppe.bewohner);
     expect(File('assets/logo/${appAngaben.ordner}-512.png').existsSync(), isTrue);
     expect(File('assets/logo/${appAngaben.ordner}-klein.png').existsSync(), isTrue);
   });
