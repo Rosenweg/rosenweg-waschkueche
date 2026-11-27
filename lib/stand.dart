@@ -15,6 +15,9 @@ class WaschStand extends ChangeNotifier {
 
   List<Raum>? raeume;
   List<Reservation> meine = const [];
+
+  /// Wirksame Regeln (Tage im Voraus usw.); Standard, bis geladen.
+  Einstellungen einstellungen = const Einstellungen();
   Object? fehler;
   bool laedt = false;
 
@@ -40,6 +43,11 @@ class WaschStand extends ChangeNotifier {
       final m = await api.meine();
       raeume = r;
       meine = m;
+      try {
+        einstellungen = await api.einstellungen();
+      } catch (_) {
+        // aeltere API ohne Einstellungen: Standard
+      }
       fehler = null;
     } catch (e) {
       fehler = e;

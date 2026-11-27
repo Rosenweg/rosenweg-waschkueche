@@ -16,8 +16,9 @@ Future<bool> reservierenDialog(
   required Raum raum,
   DateTime? beginn,
   bool verwaltung = false,
+  List<Sperrzeit> sperren = const [],
 }) async {
-  final seite = ReservierenSeite(stand: stand, raum: raum, beginn: beginn, verwaltung: verwaltung);
+  final seite = ReservierenSeite(stand: stand, raum: raum, beginn: beginn, verwaltung: verwaltung, sperren: sperren);
   final ok = Fensterklasse.von(context).istBreit
       ? await showDialog<bool>(
           context: context,
@@ -31,11 +32,14 @@ Future<bool> reservierenDialog(
 }
 
 class ReservierenSeite extends StatefulWidget {
-  const ReservierenSeite({super.key, required this.stand, required this.raum, this.beginn, this.verwaltung = false});
+  const ReservierenSeite({super.key, required this.stand, required this.raum, this.beginn, this.verwaltung = false, this.sperren = const []});
   final WaschStand stand;
   final Raum raum;
   final DateTime? beginn;
   final bool verwaltung;
+
+  /// Sperrzeiten der gezeigten Woche (Vorpruefung; die API prueft selbst).
+  final List<Sperrzeit> sperren;
 
   @override
   State<ReservierenSeite> createState() => _ReservierenSeiteState();
@@ -78,7 +82,11 @@ class _ReservierenSeiteState extends State<ReservierenSeite> {
   DateTime get _ende => _bis.hour == 0 && _bis.minute == 0 ? DateTime(_tag.year, _tag.month, _tag.day + 1) : _um(_bis);
 
   String? get _problem => Regeln.pruefen(_beginn, _ende,
-      jetzt: _jetzt, verwaltung: widget.verwaltung, serieBis: _woechentlich ? _serieBis : null);
+      jetzt: _jetzt,
+      verwaltung: widget.verwaltung,
+      serieBis: _woechentlich ? _serieBis : null,
+      maxTage: widget.stand.einstellungen.maxTage,
+      sperren: [for (final s in widget.sperren) if (s.raumId == _raum.id) s]);
 
   Future<void> _speichern() async {
     final p = _problem;
@@ -136,7 +144,7 @@ class _ReservierenSeiteState extends State<ReservierenSeite> {
             wert: _tag,
             pflicht: true,
             erstes: widget.verwaltung ? DateTime(2020) : heute,
-            letztes: widget.verwaltung ? DateTime(2100) : heute.add(Regeln.maxVoraus),
+            letztes: widget.verwaltung ? DateTime(2100) : heute.add(Duration(days: widget.stand.einstellungen.maxTage)),
             geaendert: (v) => setState(() => _tag = v ?? _tag),
           ),
           Row(children: [

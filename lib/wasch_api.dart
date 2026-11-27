@@ -63,6 +63,40 @@ class WaschApi {
     return n is int ? n : 0;
   }
 
+  /// Sperrzeiten eines Raums (oder aller, ohne [raum]); ohne Zeitraum die kommenden.
+  Future<List<Sperrzeit>> sperrzeiten({int? raum, DateTime? von, DateTime? bis}) async {
+    final q = [
+      if (raum != null) 'room_id=$raum',
+      if (von != null) 'from=${_q(apiZeit(von))}',
+      if (bis != null) 'to=${_q(apiZeit(bis))}',
+    ].join('&');
+    final l = await api.get('/api/wasch/sperrzeiten${q.isEmpty ? '' : '?$q'}');
+    return [for (final s in _liste(l)) ?Sperrzeit.aus(s)];
+  }
+
+  /// Rueckgabe: wie viele bestehende Reservationen in die Sperrzeit fallen.
+  Future<int> sperren(int raum, DateTime von, DateTime bis, String grund) async {
+    final j = _objekt(await api.post('/api/wasch/sperrzeiten', {
+      'room_id': raum,
+      'start_time': apiZeit(von),
+      'end_time': apiZeit(bis),
+      'grund': grund,
+    }));
+    final n = j['betroffene_reservationen'];
+    return n is int ? n : 0;
+  }
+
+  Future<void> sperreAufheben(int id) => api.delete('/api/wasch/sperrzeiten/$id');
+
+  Future<Einstellungen> einstellungen() async => Einstellungen.aus(_objekt(await api.get('/api/wasch/settings')));
+
+  Future<void> einstellungenSpeichern(Einstellungen e) => api.put('/api/wasch/settings', {
+        'cost_per_kwh': e.preisProKwh,
+        'reservation_max_days': e.maxTage,
+        'reservation_max_per_user': e.maxOffen,
+        'auto_billing': e.autoAbrechnung,
+      });
+
   // ── Verwalten ──
   Future<Statistik> statistik() async => Statistik.aus(_objekt(await api.get('/api/wasch/admin/stats')));
 
@@ -74,7 +108,8 @@ class WaschApi {
   Future<List<Kosten>> kosten(DateTime monat) async =>
       [for (final k in _liste(await api.get('/api/wasch/admin/costs?month=${apiMonat(monat)}'))) Kosten.aus(k)];
 
-  /// Abrechnung des Monats per E-Mail an alle Personen mit Nutzungen.
+  /// Abrechnung eines vergangenen Monats per E-Mail an alle Personen mit
+  /// Nutzungen; jeder Monat nur einmal (sonst 409).
   Future<String?> abrechnungSenden(DateTime monat) async {
     final j = _objekt(await api.post('/api/wasch/admin/billing/run', {'month': apiMonat(monat)}));
     final m = j['message'];
@@ -96,12 +131,4 @@ class WaschApi {
       await api.put('/api/wasch/rooms/$id', k);
     }
   }
-
-  /// Preis pro kWh (CHF) als Text, wie gespeichert; null = nicht gesetzt.
-  Future<String?> preisProKwh() async {
-    final v = _objekt(await api.get('/api/wasch/settings'))['cost_per_kwh'];
-    return v == null ? null : '$v';
-  }
-
-  Future<void> preisSpeichern(String preis) => api.put('/api/wasch/settings', {'cost_per_kwh': preis});
 }
