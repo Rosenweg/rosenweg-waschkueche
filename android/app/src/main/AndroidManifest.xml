@@ -25,11 +25,42 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+        </activity>
+        <!-- rosenweg-gruppenfarbe: Startsymbol je Gruppenfarbe (rosenweg-basis docs/gruppenfarbe.md) -->
+        <activity-alias
+            android:name=".SymbolBewohner"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher"
+            android:enabled="true"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name=".SymbolVerwaltung"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_verwaltung"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".SymbolTechnik"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_technik"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <!-- /rosenweg-gruppenfarbe -->
         <!-- Ruecksprung der Anmeldung (ch.rosenweg4303.waschkueche:/anmeldung) bringt
              rosenweg_basis mit (RuecksprungActivity, Schema = applicationId). -->
         <!-- Don't delete the meta-data below.

@@ -22,7 +22,8 @@ dependencies:
     git:
       url: https://github.com/Rosenweg/rosenweg-basis.git
       # fester Tag (Wochenraster); neue Basis = neuer Tag
-      ref: v0.7.1
+      # Gruppenfarbe (rosenweg-basis PR #36): Zweig, bis der Integrator die Version vergibt
+      ref: feat/gruppenfarbe-person
 
 dev_dependencies:
   flutter_test:
@@ -35,3 +36,7 @@ flutter:
   assets:
     - assets/logo/rosenweg-waschkueche-512.png
     - assets/logo/rosenweg-waschkueche-klein.png
+    - assets/logo/rosenweg-waschkueche-verwaltung-512.png
+    - assets/logo/rosenweg-waschkueche-verwaltung-klein.png
+    - assets/logo/rosenweg-waschkueche-technik-512.png
+    - assets/logo/rosenweg-waschkueche-technik-klein.png

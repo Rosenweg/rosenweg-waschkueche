@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Erzeugt von rosenweg-basis werkzeug/logo/erzeugen.sh (FARBEN) -->
+<resources>
+    <color name="rosenweg_icon_verwaltung">#1E3A8A</color>
+    <color name="rosenweg_icon_technik">#2E6B4F</color>
+</resources>

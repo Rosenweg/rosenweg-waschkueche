@@ -90,7 +90,7 @@ class _HauptState extends State<Haupt> {
           titel: Text(s.app.name),
           logo: Padding(
             padding: const EdgeInsets.all(10),
-            child: Image.asset('assets/logo/rosenweg-waschkueche-klein.png', semanticLabel: 'Logo'),
+            child: FarbLogo(sitzung: s, klein: true),
           ),
           // das Raster braucht die Breite (sieben Tage)
           maxBreite: 1100,
