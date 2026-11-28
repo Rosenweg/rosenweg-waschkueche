@@ -8,10 +8,14 @@ import 'wasch_api.dart';
 /// Was alle Seiten teilen: die Raeume der Person und ihre eigenen kommenden
 /// Reservationen (fuer „Meine“, die Farbe im Raster und die Erinnerung).
 class WaschStand extends ChangeNotifier {
-  WaschStand(this.api, {DateTime Function()? jetzt}) : jetzt = jetzt ?? DateTime.now;
+  WaschStand(this.api, {DateTime Function()? jetzt, this.erinnerungen = false}) : jetzt = jetzt ?? DateTime.now;
 
   final WaschApi api;
   final DateTime Function() jetzt;
+
+  /// Benachrichtigungen 15 Minuten vor Beginn planen (nicht auf geteilten
+  /// Telefonen, nicht mit Vorfuehrdaten).
+  final bool erinnerungen;
 
   List<Raum>? raeume;
   List<Reservation> meine = const [];

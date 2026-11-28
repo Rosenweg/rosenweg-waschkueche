@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:rosenweg_basis/rosenweg_basis.dart';
 
@@ -92,6 +94,8 @@ class _ReservierenSeiteState extends State<ReservierenSeite> {
     final p = _problem;
     if (p != null) throw ApiFehler(400, p, null);
     final n = await widget.stand.api.reservieren(_raum.id, _beginn, _ende, serieBis: _woechentlich ? _serieBis : null);
+    // Erlaubnis fuer die Erinnerung erst jetzt, wo es eine gibt (Android 13+, iOS, macOS)
+    if (widget.stand.erinnerungen) unawaited(Benachrichtigung.erlaubnisFragen());
     if (!mounted) return;
     final zeit = '${uhrText(_beginn)}–${uhrText(_ende)}';
     zeigeMeldung(
