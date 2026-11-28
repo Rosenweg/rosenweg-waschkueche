@@ -241,6 +241,23 @@ void main() {
     expect(put, {'cost_per_kwh': '0.30', 'reservation_max_days': 30, 'reservation_max_per_user': 120, 'auto_billing': false});
   });
 
+  testWidgets('Verwalten: Modul Waschküche je STWEG schalten (nur Ausschuss-STWEG)', (t) async {
+    final a = await zeigen(t, const Size(412, 860));
+    await t.tap(find.text('Verwalten'));
+    await t.pumpAndSettle();
+    await t.ensureVisible(find.text('Modul'));
+    await t.tap(find.text('Modul'));
+    await t.pumpAndSettle();
+    expect(find.text('STWEG 3'), findsOneWidget);
+    expect(find.text('STWEG 5'), findsNothing);
+    await t.tap(find.text('STWEG 3'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Ausschalten'));
+    await t.pumpAndSettle();
+    final post = a.anfragen.lastWhere((r) => r.methode == 'POST' && r.pfad == '/api/stweg-modules').koerper as Map;
+    expect(post, {'stweg': 3, 'module': 'waschkueche', 'active': false});
+  });
+
   test('Regeln: Tage aus den Einstellungen, Sperrzeit', () {
     final s = Sperrzeit(id: 1, raumId: 1, von: DateTime(2026, 11, 26, 7), bis: DateTime(2026, 11, 26, 10), grund: 'Reinigung');
     expect(Regeln.pruefen(DateTime(2026, 12, 30, 8), DateTime(2026, 12, 30, 10), jetzt: _jetzt, maxTage: 30), 'Höchstens 30 Tage im Voraus.');

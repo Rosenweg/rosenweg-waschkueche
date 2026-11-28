@@ -323,3 +323,11 @@ class Regeln {
     return null;
   }
 }
+
+/// Eine STWEG, deren Waschkueche-Modul die Person schalten darf.
+class ModulStweg {
+  const ModulStweg({required this.nr, required this.name, required this.aktiv});
+  final int nr;
+  final String name;
+  final bool aktiv;
+}

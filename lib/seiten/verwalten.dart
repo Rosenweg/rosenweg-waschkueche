@@ -24,7 +24,7 @@ class VerwaltenSeite extends StatelessWidget {
   Widget build(BuildContext context) {
     final heute = (jetzt ?? DateTime.now)();
     return DefaultTabController(
-      length: 6,
+      length: 7,
       child: Column(children: [
         const TabBar(
           isScrollable: true,
@@ -36,6 +36,7 @@ class VerwaltenSeite extends StatelessWidget {
             Tab(text: 'Nutzungen'),
             Tab(text: 'Abrechnung'),
             Tab(text: 'Einstellungen'),
+            Tab(text: 'Modul'),
           ],
         ),
         if (!schreiben)
@@ -51,6 +52,7 @@ class VerwaltenSeite extends StatelessWidget {
             _Nutzungen(api: api, heute: heute),
             _Abrechnung(api: api, schreiben: schreiben, heute: heute),
             _Einstellungen(api: api, schreiben: schreiben),
+            _Modul(api: api),
           ]),
         ),
       ]),
@@ -725,6 +727,65 @@ class _EinstellungenFormularState extends State<_EinstellungenFormular> {
         autoAbrechnung: _auto,
       )),
       felder: felder,
+    );
+  }
+}
+
+
+// ── Modul Waschkueche je STWEG ──
+// Der Schalter stand frueher in „STWEG-Module“ (Website). Wer schalten darf, entscheidet die API:
+// Technik/Praesident jede STWEG, der Ausschuss die eigene (POST /api/stweg-modules).
+class _Modul extends StatefulWidget {
+  const _Modul({required this.api});
+  final WaschApi api;
+
+  @override
+  State<_Modul> createState() => _ModulState();
+}
+
+class _ModulState extends State<_Modul> {
+  List<ModulStweg>? _liste;
+  Object? _fehler;
+
+  @override
+  void initState() {
+    super.initState();
+    _laden();
+  }
+
+  Future<void> _laden() async {
+    setState(() => _fehler = null);
+    try {
+      final l = await widget.api.modulStwegs();
+      if (mounted) setState(() => _liste = l);
+    } catch (e) {
+      if (mounted) setState(() => _fehler = e);
+    }
+  }
+
+  Future<void> _schalten(ModulStweg m, bool an) async {
+    if (!an && !await frage(context, 'Waschküche ausschalten?', 'Die Waschküche von ${m.name} ist dann für die Bewohner nicht mehr buchbar.', ja: 'Ausschalten', gefaehrlich: true)) return;
+    try {
+      await widget.api.modulSetzen(m.nr, an);
+      await _laden();
+    } catch (e) {
+      if (mounted) zeigeMeldung(context, fehlerText(e), fehler: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_fehler != null) return FehlerAnzeige.aus(_fehler!, nochmals: _laden);
+    final l = _liste;
+    if (l == null) return const LadeAnzeige();
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text('Waschküche je STWEG ein- oder ausschalten. Ausschuss: die eigene STWEG; Technik und Präsident: alle.'),
+        const SizedBox(height: 8),
+        if (l.isEmpty) const Hinweis('Du darfst das Modul für keine STWEG schalten.'),
+        for (final m in l) SwitchListTile(title: Text(m.name), value: m.aktiv, onChanged: (v) => _schalten(m, v)),
+      ],
     );
   }
 }

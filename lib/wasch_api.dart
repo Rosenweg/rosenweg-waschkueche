@@ -137,4 +137,24 @@ class WaschApi {
       await api.put('/api/wasch/rooms/$id', k);
     }
   }
+
+  // ── Modul Waschkueche je STWEG ──
+
+  /// STWEGs, fuer die die Person das Modul schalten darf (Ausschuss, Technik, Praesident),
+  /// mit dem heutigen Stand. Siehe GET /api/stweg/meine (Rosenweg STWEG) und /api/stweg-modules.
+  Future<List<ModulStweg>> modulStwegs() async {
+    final meine = _objekt(await api.get('/api/stweg/meine'));
+    final aktiv = _objekt(await api.get('/api/stweg-modules'));
+    return [
+      for (final s in _liste(meine['stwegs']))
+        if ((s['rollen'] is List) && (s['rollen'] as List).any((r) => r == 'ausschuss' || r == 'technik' || r == 'praesident'))
+          ModulStweg(
+            nr: (s['nr'] as num).toInt(),
+            name: '${s['name']}',
+            aktiv: aktiv['${s['nr']}'] is List && (aktiv['${s['nr']}'] as List).contains('waschkueche'),
+          ),
+    ];
+  }
+
+  Future<void> modulSetzen(int stweg, bool aktiv) => api.post('/api/stweg-modules', {'stweg': stweg, 'module': 'waschkueche', 'active': aktiv});
 }
