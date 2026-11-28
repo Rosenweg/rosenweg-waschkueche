@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:rosenweg_basis/rosenweg_basis.dart';
+import 'package:rosenweg_basis/rosenweg_basis.dart' hide Erinnerung;
 import 'package:rosenweg_waschkueche/app.dart';
 import 'package:rosenweg_waschkueche/attrappe.dart';
 import 'package:rosenweg_waschkueche/daten.dart';
