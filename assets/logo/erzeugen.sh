@@ -11,4 +11,7 @@
 set -eu
 BASIS="${1:-../rosenweg-basis}"
 GRUPPE=bewohner
-sh "$BASIS/werkzeug/logo/app-symbole.sh" . rosenweg-waschkueche "Rosenweg Waschküche" assets/logo/zeichen/waschkueche.svg "$GRUPPE"
+# Weitere Gruppenfarben (lib: farbGruppen): Logos, Android-Aliasse, iOS alternate icons
+FARBEN="verwaltung technik"
+FARBEN="$FARBEN" sh "$BASIS/werkzeug/logo/app-symbole.sh" . rosenweg-waschkueche "Rosenweg Waschküche" assets/logo/zeichen/waschkueche.svg "$GRUPPE"
+python3 "$BASIS/werkzeug/logo/farben-einbauen.py" . --standard bewohner --farben $FARBEN >/dev/null
