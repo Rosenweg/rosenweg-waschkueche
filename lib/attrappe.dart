@@ -103,6 +103,8 @@ class Attrappe implements Transport {
 
   bool get _admin => gruppen.any((g) => const {'technik', 'präsident', 'praesident'}.contains(g));
 
+  bool _modulAn = true;
+
   bool get _darfVerwalten => _admin || rechte['waschküche-admin'] == 'read' || rechte['waschküche-admin'] == 'write';
   bool get _darfAendern => _admin || rechte['waschküche-admin'] == 'write';
 
@@ -142,6 +144,13 @@ class Attrappe implements Transport {
             },
           },
         );
+      case 'GET /api/stweg/meine':
+        return (status: 200, json: {'stwegs': [{'nr': 3, 'name': 'STWEG 3', 'rollen': ['eigentuemer', 'ausschuss']}, {'nr': 5, 'name': 'STWEG 5', 'rollen': ['bewohner']}]});
+      case 'GET /api/stweg-modules':
+        return (status: 200, json: {'3': _modulAn ? ['waschkueche'] : <String>[]});
+      case 'POST /api/stweg-modules':
+        _modulAn = k['active'] == true;
+        return (status: 200, json: {'ok': true});
       case 'GET /api/wasch/rooms':
         return (status: 200, json: ohneRaeume ? <Object>[] : _raeume.where((r) => r['active'] == true).toList());
       case 'POST /api/wasch/rooms':
