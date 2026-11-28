@@ -126,6 +126,77 @@ String dauerText(Duration d) {
   return [if (h > 0) '$h Std.', if (m > 0 || h == 0) '$m Min.'].join(' ');
 }
 
+/// Sperrzeit eines Raums (Reinigung, Wartung …) – GET /api/wasch/sperrzeiten.
+/// In dieser Zeit lehnt die API jede Reservation ab.
+class Sperrzeit {
+  const Sperrzeit({required this.id, required this.raumId, required this.von, required this.bis, required this.grund, this.raumName});
+  final int id;
+  final int raumId;
+  final DateTime von;
+  final DateTime bis;
+  final String grund;
+  final String? raumName;
+
+  static Sperrzeit? aus(Map<String, dynamic> j) {
+    final von = zeitAus(j['start_time']);
+    final bis = zeitAus(j['end_time']);
+    if (von == null || bis == null) return null;
+    return Sperrzeit(
+      id: j['id'] is int ? j['id'] as int : int.tryParse('${j['id']}') ?? 0,
+      raumId: j['room_id'] is int ? j['room_id'] as int : int.tryParse('${j['room_id']}') ?? 0,
+      von: von,
+      bis: bis,
+      grund: _text(j['grund']) ?? 'Gesperrt',
+      raumName: _text(j['room_name']),
+    );
+  }
+}
+
+/// Reservation, die eine neue Sperrzeit stornieren wuerde (Vorschau der API).
+class Betroffen {
+  const Betroffen({required this.von, required this.bis, this.person, this.wohnung, this.woechentlich = false});
+  final DateTime von;
+  final DateTime bis;
+  final String? person;
+  final String? wohnung;
+  final bool woechentlich;
+
+  static Betroffen? aus(Map<String, dynamic> j) {
+    final von = zeitAus(j['start_time']), bis = zeitAus(j['end_time']);
+    if (von == null || bis == null) return null;
+    return Betroffen(von: von, bis: bis, person: _text(j['user_name']), wohnung: _text(j['wohnung']), woechentlich: j['wiederkehrend'] == true);
+  }
+}
+
+/// Einstellungen der Waschkueche – GET /api/wasch/settings (wirksame Werte).
+class Einstellungen {
+  const Einstellungen({this.preisProKwh = '0.30', this.maxTage = 90, this.maxOffen = 120, this.autoAbrechnung = true});
+  final String preisProKwh;
+
+  /// Reservieren hoechstens so viele Tage im Voraus (reservation_max_days).
+  final int maxTage;
+
+  /// Offene Reservationen je Person hoechstens (reservation_max_per_user).
+  final int maxOffen;
+
+  /// Am 1. um 08:00 den Vormonat abrechnen (auto_billing).
+  final bool autoAbrechnung;
+
+  factory Einstellungen.aus(Map<String, dynamic> j) {
+    int ganz(Object? v, int d) {
+      final n = int.tryParse('${v ?? ''}');
+      return n != null && n > 0 ? n : d;
+    }
+
+    return Einstellungen(
+      preisProKwh: _text(j['cost_per_kwh']) ?? '0.30',
+      maxTage: ganz(j['reservation_max_days'], 90),
+      maxOffen: ganz(j['reservation_max_per_user'], 120),
+      autoAbrechnung: '${j['auto_billing'] ?? 'true'}' == 'true' || '${j['auto_billing']}' == '1',
+    );
+  }
+}
+
 /// Nutzung (Session) einer Maschine – GET /api/wasch/admin/sessions.
 class Nutzung {
   const Nutzung({
@@ -228,22 +299,27 @@ class Regeln {
   Regeln._();
   static const minDauer = Duration(minutes: 30);
   static const maxDauer = Duration(hours: 12);
-  static const maxVoraus = Duration(days: 90);
   static const maxSerie = Duration(days: 366);
 
   /// Satz fuer die Person oder null (in Ordnung). [verwaltung] = Technik/
   /// Praesident: die API laesst Vergangenheit und weite Zukunft zu.
-  static String? pruefen(DateTime von, DateTime bis, {required DateTime jetzt, bool verwaltung = false, DateTime? serieBis}) {
+  /// [maxTage] aus den Einstellungen (reservation_max_days).
+  static String? pruefen(DateTime von, DateTime bis,
+      {required DateTime jetzt, bool verwaltung = false, DateTime? serieBis, int maxTage = 90, List<Sperrzeit> sperren = const []}) {
     if (!bis.isAfter(von)) return 'Das Ende muss nach dem Beginn liegen.';
     final d = bis.difference(von);
     if (d < minDauer) return 'Mindestens 30 Minuten.';
     if (d > maxDauer) return 'Höchstens 12 Stunden am Stück.';
     if (!verwaltung) {
       if (von.isBefore(jetzt.subtract(const Duration(minutes: 10)))) return 'Dieser Zeitpunkt ist schon vorbei.';
-      if (von.isAfter(jetzt.add(maxVoraus))) return 'Höchstens 90 Tage im Voraus.';
+      if (von.isAfter(jetzt.add(Duration(days: maxTage)))) return 'Höchstens $maxTage Tage im Voraus.';
       if (serieBis != null && serieBis.isAfter(jetzt.add(maxSerie))) return 'Eine Serie geht höchstens ein Jahr voraus.';
     }
     if (serieBis != null && serieBis.isBefore(DateTime(von.year, von.month, von.day))) return 'Die Serie muss nach dem ersten Termin enden.';
+    // nur der erste Termin; bei einer Serie laesst die API gesperrte Wochen aus
+    for (final s in sperren) {
+      if (s.von.isBefore(bis) && s.bis.isAfter(von)) return 'Gesperrt: ${s.grund}.';
+    }
     return null;
   }
 }

@@ -26,6 +26,7 @@ class BelegungSeite extends StatefulWidget {
 class _BelegungSeiteState extends State<BelegungSeite> {
   late DateTime _montag = montagVon(widget.stand.jetzt());
   List<Reservation>? _belegung;
+  List<Sperrzeit> _sperren = const [];
   Object? _fehler;
   bool _laedt = false;
   int? _geladenFuer;
@@ -63,9 +64,16 @@ class _BelegungSeiteState extends State<BelegungSeite> {
       _geladenFuer = raum.id;
     });
     try {
-      final l = await _s.api.belegung(raum.id, montag, DateTime(montag.year, montag.month, montag.day + 7));
+      final bis = DateTime(montag.year, montag.month, montag.day + 7);
+      final (l, sp) = await (
+        _s.api.belegung(raum.id, montag, bis),
+        _s.api.sperrzeiten(raum: raum.id, von: montag, bis: bis).catchError((_) => const <Sperrzeit>[]),
+      ).wait;
       if (!mounted || montag != _montag || raum.id != _s.raum?.id) return;
-      setState(() => _belegung = l);
+      setState(() {
+        _belegung = l;
+        _sperren = sp;
+      });
     } catch (e) {
       if (mounted) setState(() => _fehler = e);
     } finally {
@@ -81,6 +89,7 @@ class _BelegungSeiteState extends State<BelegungSeite> {
     setState(() {
       _montag = m;
       _belegung = null;
+      _sperren = const [];
     });
     _laden();
   }
@@ -88,7 +97,7 @@ class _BelegungSeiteState extends State<BelegungSeite> {
   Future<void> _reservieren([DateTime? beginn]) async {
     final raum = _s.raum;
     if (raum == null) return;
-    final ok = await reservierenDialog(context, stand: _s, raum: raum, beginn: beginn, verwaltung: widget.verwaltung);
+    final ok = await reservierenDialog(context, stand: _s, raum: raum, beginn: beginn, verwaltung: widget.verwaltung, sperren: _sperren);
     if (ok) await _alles();
   }
 
@@ -116,9 +125,11 @@ class _BelegungSeiteState extends State<BelegungSeite> {
     }
     final raum = _s.raum!;
     final meine = _s.meineIds;
-    final eintraege = [
+    final eintraege = <RasterEintrag<Object>>[
+      for (final s in _sperren)
+        RasterEintrag<Object>(von: s.von, bis: s.bis, titel: 'Gesperrt', untertitel: s.grund, art: RasterArt.gesperrt, daten: s),
       for (final r in _belegung ?? const <Reservation>[])
-        RasterEintrag<Reservation>(
+        RasterEintrag<Object>(
           von: r.von,
           bis: r.bis,
           titel: meine.contains(r.id) ? 'Du' : (r.person ?? 'Reserviert'),
@@ -146,7 +157,10 @@ class _BelegungSeiteState extends State<BelegungSeite> {
               showSelectedIcon: false,
               onSelectionChanged: (s) {
                 _s.raumWaehlen(s.first);
-                setState(() => _belegung = null);
+                setState(() {
+                  _belegung = null;
+                  _sperren = const [];
+                });
               },
             ),
           )
@@ -166,16 +180,23 @@ class _BelegungSeiteState extends State<BelegungSeite> {
             ]),
           ),
         Expanded(
-          child: Wochenraster<Reservation>(
+          child: Wochenraster<Object>(
             key: ValueKey('${raum.id}-$_montag'),
             montag: _montag,
             eintraege: eintraege,
             jetzt: _s.jetzt,
             leerGetippt: _reservieren,
-            eintragGetippt: (e) => _zeigen(e.daten!),
+            eintragGetippt: (e) => switch (e.daten) {
+              final Reservation r => _zeigen(r),
+              final Sperrzeit s => zeigeMeldung(context,
+                  'Gesperrt ${tagLangText(s.von)} ${uhrText(s.von)} bis ${_gleich(s.von, s.bis) ? '' : '${tagLangText(s.bis)} '}${uhrText(s.bis)}: ${s.grund}.'),
+              _ => null,
+            },
           ),
         ),
       ]),
     );
   }
 }
+
+bool _gleich(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;

@@ -6,7 +6,7 @@ import '../daten.dart';
 import '../wasch_api.dart';
 
 /// Verwaltung (wie stweg3/pages/waschkueche-admin.html): Uebersicht,
-/// Raeume, Nutzungen, Abrechnung, Preis.
+/// Raeume, Sperrzeiten, Nutzungen, Abrechnung, Einstellungen.
 ///
 /// Wer: Technik/Praesident immer; sonst Seitenrecht „waschküche-admin“ –
 /// lesen = ansehen, schreiben = Raeume, Preis und Abrechnung aendern. Die API
@@ -24,7 +24,7 @@ class VerwaltenSeite extends StatelessWidget {
   Widget build(BuildContext context) {
     final heute = (jetzt ?? DateTime.now)();
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Column(children: [
         const TabBar(
           isScrollable: true,
@@ -32,9 +32,10 @@ class VerwaltenSeite extends StatelessWidget {
           tabs: [
             Tab(text: 'Übersicht'),
             Tab(text: 'Räume'),
+            Tab(text: 'Sperrzeiten'),
             Tab(text: 'Nutzungen'),
             Tab(text: 'Abrechnung'),
-            Tab(text: 'Preis'),
+            Tab(text: 'Einstellungen'),
           ],
         ),
         if (!schreiben)
@@ -46,9 +47,10 @@ class VerwaltenSeite extends StatelessWidget {
           child: TabBarView(children: [
             _Uebersicht(api: api),
             _Raeume(api: api, schreiben: schreiben, tuerEinstellen: tuerEinstellen),
+            _Sperrzeiten(api: api, schreiben: schreiben, heute: heute),
             _Nutzungen(api: api, heute: heute),
             _Abrechnung(api: api, schreiben: schreiben, heute: heute),
-            _Preis(api: api, schreiben: schreiben),
+            _Einstellungen(api: api, schreiben: schreiben),
           ]),
         ),
       ]),
@@ -337,12 +339,19 @@ class _AbrechnungState extends State<_Abrechnung> {
   late DateTime _monat = DateTime(widget.heute.year, widget.heute.month);
   bool _sendet = false;
 
-  /// Die Anlage rechnet immer den Vormonat ab (runMonthlyBilling), jeden
-  /// Monat nur einmal – der Knopf steht darum nur beim Vormonat.
-  DateTime get _vormonat => DateTime(widget.heute.year, widget.heute.month - 1);
+  /// Abrechnen geht fuer jeden vergangenen Monat, jeden nur einmal (die API
+  /// antwortet sonst 409 „schon abgerechnet“). Standard: Vormonat.
+  bool get _vergangen => _monat.isBefore(DateTime(widget.heute.year, widget.heute.month));
+
+  @override
+  void initState() {
+    super.initState();
+    _monat = DateTime(widget.heute.year, widget.heute.month - 1);
+  }
 
   Future<void> _senden() async {
-    final m = monatText(_vormonat);
+    final monat = _monat;
+    final m = monatText(monat);
     if (!await frage(context, 'Abrechnung $m senden?',
         'Alle Personen mit Nutzungen im $m bekommen ihre Abrechnung per E-Mail. Ein Monat wird nur einmal abgerechnet; '
         'das lässt sich nicht zurücknehmen.',
@@ -351,7 +360,7 @@ class _AbrechnungState extends State<_Abrechnung> {
     }
     setState(() => _sendet = true);
     try {
-      final text = await widget.api.abrechnungSenden(_vormonat);
+      final text = await widget.api.abrechnungSenden(monat);
       if (mounted) zeigeMeldung(context, text ?? 'Abrechnung $m ausgeführt.');
     } catch (e) {
       if (mounted) zeigeMeldung(context, fehlerText(e), fehler: true);
@@ -386,7 +395,7 @@ class _AbrechnungState extends State<_Abrechnung> {
                       trailing: Text(franken(k.betrag)),
                     ),
                 ],
-                if (widget.schreiben && _monat == _vormonat)
+                if (widget.schreiben && _vergangen)
                   Padding(
                     padding: const EdgeInsets.all(16),
                     child: Align(
@@ -403,7 +412,7 @@ class _AbrechnungState extends State<_Abrechnung> {
                 else if (widget.schreiben)
                   Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Text('Per E-Mail abrechnen lässt sich nur der Vormonat (${monatText(_vormonat)}).',
+                    child: Text('Der laufende Monat lässt sich erst ab dem 1. des nächsten Monats abrechnen.',
                         style: Theme.of(context).textTheme.bodySmall),
                   ),
               ]);
@@ -413,48 +422,257 @@ class _AbrechnungState extends State<_Abrechnung> {
       ]);
 }
 
-// ── Preis ──
-class _Preis extends StatelessWidget {
-  const _Preis({required this.api, required this.schreiben});
+// ── Sperrzeiten ──
+class _Sperrzeiten extends StatefulWidget {
+  const _Sperrzeiten({required this.api, required this.schreiben, required this.heute});
   final WaschApi api;
   final bool schreiben;
+  final DateTime heute;
 
   @override
-  Widget build(BuildContext context) => _Laden<String?>(
-        laden: api.preisProKwh,
-        inhalt: (context, preis, neu) => _PreisFormular(api: api, schreiben: schreiben, preis: preis),
+  State<_Sperrzeiten> createState() => _SperrzeitenState();
+}
+
+class _SperrzeitenState extends State<_Sperrzeiten> {
+  var _stand = 0;
+
+  Future<void> _neu() async {
+    final raeume = await widget.api.raeume();
+    if (!mounted) return;
+    final ok = await Navigator.of(context).push<bool>(MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => _SperrSeite(api: widget.api, raeume: raeume, heute: widget.heute),
+    ));
+    if (ok == true) setState(() => _stand++);
+  }
+
+  Future<void> _aufheben(Sperrzeit s) async {
+    if (!await frage(context, 'Sperrzeit aufheben?', 'Danach kann in dieser Zeit wieder reserviert werden (${s.grund}).',
+        ja: 'Aufheben', gefaehrlich: true)) {
+      return;
+    }
+    try {
+      await widget.api.sperreAufheben(s.id);
+      if (!mounted) return;
+      zeigeMeldung(context, 'Sperrzeit aufgehoben.');
+      setState(() => _stand++);
+    } catch (e) {
+      if (mounted) zeigeMeldung(context, fehlerText(e), fehler: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.transparent,
+        floatingActionButton: widget.schreiben
+            ? FloatingActionButton.extended(onPressed: _neu, icon: const Icon(Icons.block), label: const Text('Sperren'))
+            : null,
+        body: _Laden<List<Sperrzeit>>(
+          key: ValueKey(_stand),
+          laden: () => widget.api.sperrzeiten(),
+          inhalt: (context, l, _) => ListView(padding: const EdgeInsets.fromLTRB(0, 8, 0, 88), children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text('In einer Sperrzeit kann niemand reservieren; die Belegung zeigt sie grau mit dem Grund.'),
+            ),
+            if (l.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Hinweis('Keine kommenden Sperrzeiten.')),
+            for (final s in l)
+              ListTile(
+                leading: const Icon(Icons.block),
+                title: Text(s.grund),
+                subtitle: Text('${s.raumName ?? 'Waschküche'} · ${_zeitraum(s.von, s.bis)}'),
+                trailing: widget.schreiben
+                    ? IconButton(tooltip: 'Aufheben', icon: const Icon(Icons.delete_outline), onPressed: () => _aufheben(s))
+                    : null,
+              ),
+          ]),
+        ),
       );
 }
 
-class _PreisFormular extends StatefulWidget {
-  const _PreisFormular({required this.api, required this.schreiben, this.preis});
-  final WaschApi api;
-  final bool schreiben;
-  final String? preis;
-
-  @override
-  State<_PreisFormular> createState() => _PreisFormularState();
+/// „Mo 30.11. 08:00–12:00“ bzw. „Mo 30.11. 08:00 – Di 1.12. 12:00“
+String _zeitraum(DateTime a, DateTime b) {
+  String tag(DateTime d) => '${wochentageKurz[d.weekday - 1]} ${d.day}.${d.month}.';
+  final gleich = a.year == b.year && a.month == b.month && a.day == b.day;
+  return gleich ? '${tag(a)} ${uhrText(a)}–${uhrText(b)}' : '${tag(a)} ${uhrText(a)} – ${tag(b)} ${uhrText(b)}';
 }
 
-class _PreisFormularState extends State<_PreisFormular> {
-  late final _preis = TextEditingController(text: widget.preis);
+class _SperrSeite extends StatefulWidget {
+  const _SperrSeite({required this.api, required this.raeume, required this.heute});
+  final WaschApi api;
+  final List<Raum> raeume;
+  final DateTime heute;
+
+  @override
+  State<_SperrSeite> createState() => _SperrSeiteState();
+}
+
+class _SperrSeiteState extends State<_SperrSeite> {
+  late int? _raum = widget.raeume.isEmpty ? null : widget.raeume.first.id;
+  late DateTime _vonTag = DateTime(widget.heute.year, widget.heute.month, widget.heute.day + 1);
+  TimeOfDay _von = const TimeOfDay(hour: 8, minute: 0);
+  late DateTime _bisTag = _vonTag;
+  TimeOfDay _bis = const TimeOfDay(hour: 12, minute: 0);
+  final _grund = TextEditingController();
 
   @override
   void dispose() {
-    _preis.dispose();
+    _grund.dispose();
     super.dispose();
   }
 
-  static String? _pruefen(String? v) {
-    final t = (v ?? '').trim().replaceAll(',', '.');
-    final z = double.tryParse(t);
-    if (z == null || z < 0 || z > 10) return 'Bitte einen Preis wie 0.30 eingeben.';
-    return null;
+  DateTime _um(DateTime t, TimeOfDay z) => DateTime(t.year, t.month, t.day, z.hour, z.minute);
+
+  Future<void> _speichern() async {
+    final von = _um(_vonTag, _von), bis = _um(_bisTag, _bis);
+    if (_raum == null) throw ApiFehler(400, 'Bitte eine Waschküche wählen.', null);
+    if (!bis.isAfter(von)) throw ApiFehler(400, 'Das Ende muss nach dem Beginn liegen.', null);
+    final grund = _grund.text.trim();
+    // Erst zeigen, wen es trifft: diese Reservationen werden storniert
+    final betroffen = await widget.api.sperrVorschau(_raum!, von, bis, grund);
+    if (betroffen.isNotEmpty && mounted && !await _nachfragen(betroffen)) {
+      throw ApiFehler(0, 'Abgebrochen – nichts gesperrt.', null);
+    }
+    final (storniert, benachrichtigt) = await widget.api.sperren(_raum!, von, bis, grund);
+    if (mounted) {
+      zeigeMeldung(
+        context,
+        storniert == 0
+            ? 'Gesperrt.'
+            : 'Gesperrt. $storniert ${storniert == 1 ? 'Reservation' : 'Reservationen'} storniert, '
+                '$benachrichtigt ${benachrichtigt == 1 ? 'Person' : 'Personen'} benachrichtigt.',
+      );
+    }
+  }
+
+  Future<bool> _nachfragen(List<Betroffen> l) async {
+    final n = l.length;
+    final r = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('$n ${n == 1 ? 'Reservation' : 'Reservationen'} stornieren?'),
+        content: SizedBox(
+          width: 420,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Die Sperrzeit storniert diese Reservationen (bei Serien nur diese Termine). '
+                'Die Personen bekommen eine E-Mail mit Grund und Zeitraum.'),
+            const SizedBox(height: 12),
+            Flexible(
+              child: ListView(shrinkWrap: true, children: [
+                for (final b in l)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(b.woechentlich ? Icons.repeat : Icons.event_busy_outlined),
+                    title: Text('${b.person ?? '–'}${b.wohnung == null ? '' : ' (${b.wohnung})'}'),
+                    subtitle: Text(_zeitraum(b.von, b.bis)),
+                  ),
+              ]),
+            ),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Abbrechen')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Sperren und stornieren'),
+          ),
+        ],
+      ),
+    );
+    return r ?? false;
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('Zeit sperren')),
+        body: RosenwegFormular(
+          speichernText: 'Sperren',
+          gespeichertText: null,
+          speichern: _speichern,
+          gespeichert: () => Navigator.of(context).pop(true),
+          felder: [
+            AuswahlFeld<int>(
+              name: 'room_id',
+              titel: 'Waschküche',
+              pflicht: true,
+              optionen: {for (final r in widget.raeume) r.id: r.name},
+              wert: _raum,
+              geaendert: (v) => setState(() => _raum = v),
+            ),
+            Row(children: [
+              Expanded(child: DatumFeld(titel: 'Von (Tag)', wert: _vonTag, pflicht: true, geaendert: (v) => setState(() {
+                    final alt = _vonTag;
+                    _vonTag = v ?? _vonTag;
+                    if (_bisTag == alt || _bisTag.isBefore(_vonTag)) _bisTag = _vonTag;
+                  }))),
+              const SizedBox(width: 12),
+              Expanded(child: ZeitFeld(titel: 'Uhrzeit', wert: _von, pflicht: true, geaendert: (v) => setState(() => _von = v ?? _von))),
+            ]),
+            Row(children: [
+              Expanded(child: DatumFeld(titel: 'Bis (Tag)', wert: _bisTag, pflicht: true, erstes: _vonTag, geaendert: (v) => setState(() => _bisTag = v ?? _bisTag))),
+              const SizedBox(width: 12),
+              Expanded(child: ZeitFeld(titel: 'Uhrzeit', wert: _bis, pflicht: true, geaendert: (v) => setState(() => _bis = v ?? _bis))),
+            ]),
+            TextFeld(name: 'grund', titel: 'Grund', controller: _grund, pflicht: true, hinweis: 'z. B. Reinigung, Wartung Waschmaschine', pruefen: Pruefen.hoechstens(200)),
+            const Hinweis('Reservationen in dieser Zeit werden storniert (bei Serien nur diese Termine) und die Personen '
+                'per E-Mail benachrichtigt. Vorher zeigt die App, wen es trifft.'),
+          ],
+        ),
+      );
+}
+
+// ── Einstellungen ──
+class _Einstellungen extends StatelessWidget {
+  const _Einstellungen({required this.api, required this.schreiben});
+  final WaschApi api;
+  final bool schreiben;
+
+  @override
+  Widget build(BuildContext context) => _Laden<Einstellungen>(
+        laden: api.einstellungen,
+        inhalt: (context, e, _) => _EinstellungenFormular(api: api, schreiben: schreiben, e: e),
+      );
+}
+
+class _EinstellungenFormular extends StatefulWidget {
+  const _EinstellungenFormular({required this.api, required this.schreiben, required this.e});
+  final WaschApi api;
+  final bool schreiben;
+  final Einstellungen e;
+
+  @override
+  State<_EinstellungenFormular> createState() => _EinstellungenFormularState();
+}
+
+class _EinstellungenFormularState extends State<_EinstellungenFormular> {
+  late final _preis = TextEditingController(text: widget.e.preisProKwh);
+  late final _tage = TextEditingController(text: '${widget.e.maxTage}');
+  late final _offen = TextEditingController(text: '${widget.e.maxOffen}');
+  late bool _auto = widget.e.autoAbrechnung;
+
+  @override
+  void dispose() {
+    for (final c in [_preis, _tage, _offen]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  static String? Function(String?) _ganz(int min, int max) => (v) {
+        final n = int.tryParse((v ?? '').trim());
+        return n == null || n < min || n > max ? 'Ganze Zahl von $min bis $max.' : null;
+      };
+
+  static String? _preisPruefen(String? v) {
+    final z = double.tryParse((v ?? '').trim().replaceAll(',', '.'));
+    return z == null || z < 0 || z > 10 ? 'Bitte einen Preis wie 0.30 eingeben.' : null;
   }
 
   @override
   Widget build(BuildContext context) {
-    final felder = [
+    final felder = <Widget>[
       TextFeld(
         name: 'cost_per_kwh',
         titel: 'Preis pro kWh',
@@ -463,8 +681,34 @@ class _PreisFormularState extends State<_PreisFormular> {
         pflicht: true,
         aktiv: widget.schreiben,
         tastatur: const TextInputType.numberWithOptions(decimal: true),
-        pruefen: _pruefen,
+        pruefen: _preisPruefen,
         hinweis: 'Gilt für die Kosten jeder neuen Nutzung (Verbrauch × Preis).',
+      ),
+      TextFeld(
+        name: 'reservation_max_days',
+        titel: 'Reservieren höchstens so viele Tage im Voraus',
+        controller: _tage,
+        pflicht: true,
+        aktiv: widget.schreiben,
+        tastatur: TextInputType.number,
+        pruefen: _ganz(1, 365),
+      ),
+      TextFeld(
+        name: 'reservation_max_per_user',
+        titel: 'Offene Reservationen je Person höchstens',
+        controller: _offen,
+        pflicht: true,
+        aktiv: widget.schreiben,
+        tastatur: TextInputType.number,
+        pruefen: _ganz(1, 500),
+        hinweis: 'Eine wöchentliche Serie zählt mit jedem Termin.',
+      ),
+      SchalterFeld(
+        name: 'auto_billing',
+        titel: 'Automatisch abrechnen',
+        erklaerung: 'Am 1. jedes Monats um 08:00 den Vormonat per E-Mail abrechnen.',
+        wert: _auto,
+        geaendert: widget.schreiben ? (v) => setState(() => _auto = v) : (_) {},
       ),
       const Hinweis('Türen und UniFi Access stellt die Technik in Rosenweg Zutritt ein.'),
     ];
@@ -473,8 +717,13 @@ class _PreisFormularState extends State<_PreisFormular> {
     }
     return RosenwegFormular(
       fragenBeimVerlassen: false,
-      gespeichertText: 'Preis gespeichert.',
-      speichern: () => widget.api.preisSpeichern(_preis.text.trim().replaceAll(',', '.')),
+      gespeichertText: 'Einstellungen gespeichert.',
+      speichern: () => widget.api.einstellungenSpeichern(Einstellungen(
+        preisProKwh: _preis.text.trim().replaceAll(',', '.'),
+        maxTage: int.parse(_tage.text.trim()),
+        maxOffen: int.parse(_offen.text.trim()),
+        autoAbrechnung: _auto,
+      )),
       felder: felder,
     );
   }

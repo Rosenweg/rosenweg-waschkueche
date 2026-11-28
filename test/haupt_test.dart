@@ -154,24 +154,100 @@ void main() {
     expect(find.text('Raum hinzufügen'), findsNothing);
   });
 
-  testWidgets('Verwalten: Abrechnung nur fuer den Vormonat, mit Rueckfrage', (t) async {
+  testWidgets('Verwalten: Abrechnung fuer jeden vergangenen Monat, doppelt gesperrt', (t) async {
     final a = await zeigen(t, const Size(1280, 860));
     expect(find.byType(NavigationRail), findsOneWidget);
     await t.tap(find.text('Verwalten'));
     await t.pumpAndSettle();
     await t.tap(find.text('Abrechnung'));
     await t.pumpAndSettle();
-    expect(find.text('November 2026'), findsOneWidget);
-    expect(find.textContaining('nur der Vormonat (Oktober 2026)'), findsOneWidget);
+    // Standard: Vormonat
+    expect(find.text('Oktober 2026'), findsOneWidget);
     await t.tap(find.byTooltip('Voriger Monat'));
     await t.pumpAndSettle();
-    await t.tap(find.text('Abrechnung Oktober 2026 per E-Mail senden'));
+    await t.tap(find.text('Abrechnung September 2026 per E-Mail senden'));
     await t.pumpAndSettle();
-    expect(find.text('Abrechnung Oktober 2026 senden?'), findsOneWidget);
+    expect(find.text('Abrechnung September 2026 senden?'), findsOneWidget);
     await t.tap(find.text('Senden'));
     await t.pumpAndSettle();
-    final run = a.anfragen.lastWhere((r) => r.pfad == '/api/wasch/admin/billing/run');
-    expect(run.koerper, {'month': '2026-10'});
+    expect(a.anfragen.lastWhere((r) => r.pfad == '/api/wasch/admin/billing/run').koerper, {'month': '2026-09'});
+    expect(find.text('Abrechnung 2026-09: 2 Personen'), findsOneWidget);
+    // nochmals: die API lehnt ab, der Satz steht da
+    await t.tap(find.text('Abrechnung September 2026 per E-Mail senden'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Senden'));
+    await t.pumpAndSettle();
+    expect(find.text('2026-09 ist schon abgerechnet'), findsOneWidget);
+    // laufender Monat: kein Knopf
+    await t.tap(find.byTooltip('Nächster Monat'));
+    await t.pumpAndSettle();
+    await t.tap(find.byTooltip('Nächster Monat'));
+    await t.pumpAndSettle();
+    expect(find.text('November 2026'), findsOneWidget);
+    expect(find.textContaining('per E-Mail senden'), findsNothing);
+  });
+
+  testWidgets('Sperrzeit: grau im Raster mit Grund', (t) async {
+    final a = await zeigen(t, const Size(412, 860));
+    await t.ensureVisible(find.text('Do 26.'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Do 26.'));
+    await t.pumpAndSettle();
+    await t.ensureVisible(find.text('Reinigung'));
+    await t.pumpAndSettle();
+    expect(find.text('Gesperrt'), findsOneWidget);
+    await t.tap(find.text('Reinigung'));
+    await t.pumpAndSettle();
+    expect(find.textContaining('Gesperrt Donnerstag, 26.11.2026 07:00 bis 10:00: Reinigung.'), findsOneWidget);
+    expect(a.anfragen.where((r) => r.pfad.startsWith('/api/wasch/sperrzeiten?room_id=1')).isNotEmpty, isTrue);
+  });
+
+  testWidgets('Verwalten: Sperrzeit anlegen und Einstellungen speichern', (t) async {
+    final a = await zeigen(t, const Size(412, 860));
+    await t.tap(find.text('Verwalten'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Sperrzeiten'));
+    await t.pumpAndSettle();
+    expect(find.text('Reinigung'), findsOneWidget);
+    // eine Reservation morgen 10–11 Uhr, die die Sperrzeit trifft
+    await a.senden('POST', '/api/wasch/reservations', koerper: {'room_id': 1, 'start_time': '2026-11-26T10:00:00', 'end_time': '2026-11-26T11:00:00'});
+    await t.tap(find.text('Sperren'));
+    await t.pumpAndSettle();
+    await t.enterText(find.widgetWithText(TextFormField, 'Grund *'), 'Wartung Trockner');
+    await t.tap(find.byKey(const Key('formular-speichern')));
+    // der Knopf dreht, solange die Rueckfrage offen ist: nicht auf Ruhe warten
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 500));
+    // Vorschau: wen es trifft, nachfragen
+    expect(find.text('1 Reservation stornieren?'), findsOneWidget);
+    expect(find.text('Erika Muster (EG.1)'), findsOneWidget);
+    await t.tap(find.text('Sperren und stornieren'));
+    await t.pumpAndSettle();
+    final posts = [for (final r in a.anfragen) if (r.methode == 'POST' && r.pfad == '/api/wasch/sperrzeiten') r.koerper as Map];
+    expect(posts.first['vorschau'], isTrue);
+    expect(posts.last, {'room_id': 1, 'start_time': '2026-11-26T08:00:00', 'end_time': '2026-11-26T12:00:00', 'grund': 'Wartung Trockner', 'bestaetigt': true});
+    expect(find.text('Wartung Trockner'), findsOneWidget);
+
+    await t.ensureVisible(find.text('Einstellungen'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Einstellungen'));
+    await t.pumpAndSettle();
+    await t.enterText(find.widgetWithText(TextFormField, 'Reservieren höchstens so viele Tage im Voraus *'), '30');
+    await t.tap(find.text('Automatisch abrechnen'));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const Key('formular-speichern')));
+    await t.pumpAndSettle();
+    final put = a.anfragen.lastWhere((r) => r.methode == 'PUT' && r.pfad == '/api/wasch/settings').koerper as Map;
+    expect(put, {'cost_per_kwh': '0.30', 'reservation_max_days': 30, 'reservation_max_per_user': 120, 'auto_billing': false});
+  });
+
+  test('Regeln: Tage aus den Einstellungen, Sperrzeit', () {
+    final s = Sperrzeit(id: 1, raumId: 1, von: DateTime(2026, 11, 26, 7), bis: DateTime(2026, 11, 26, 10), grund: 'Reinigung');
+    expect(Regeln.pruefen(DateTime(2026, 12, 30, 8), DateTime(2026, 12, 30, 10), jetzt: _jetzt, maxTage: 30), 'Höchstens 30 Tage im Voraus.');
+    expect(Regeln.pruefen(DateTime(2026, 11, 26, 9), DateTime(2026, 11, 26, 11), jetzt: _jetzt, sperren: [s]), 'Gesperrt: Reinigung.');
+    expect(Regeln.pruefen(DateTime(2026, 11, 26, 10), DateTime(2026, 11, 26, 12), jetzt: _jetzt, sperren: [s]), isNull);
+    expect(Einstellungen.aus({'reservation_max_days': '30', 'auto_billing': 'false'}).maxTage, 30);
+    expect(Einstellungen.aus(const {}).autoAbrechnung, isTrue);
   });
 
   testWidgets('Technik: Tuer einstellbar; Ausschuss nicht', (t) async {

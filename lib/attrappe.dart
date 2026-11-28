@@ -44,7 +44,14 @@ class Attrappe implements Transport {
     {'id': 2, 'name': 'Waschküche 2', 'location': 'UG rechts', 'stweg': 3, 'energy_meter_id': null, 'unifi_door_id': 'door-beispiel', 'active': true},
   ];
   final _reservationen = <Map<String, dynamic>>[];
-  final _einstellungen = <String, String>{'cost_per_kwh': '0.30'};
+  final _einstellungen = <String, String>{
+    'cost_per_kwh': '0.30',
+    'reservation_max_days': '90',
+    'reservation_max_per_user': '120',
+    'auto_billing': 'true',
+  };
+  final _sperrzeiten = <Map<String, dynamic>>[];
+  final _abgerechnet = <String>{};
   var _naechste = 1;
 
   DateTime _tag(int plus, int stunde, [int minute = 0]) {
@@ -76,6 +83,14 @@ class Attrappe implements Transport {
     _anlegen(9, 1, _tag(0, 7), _tag(0, 8, 30));
     _anlegen(8, 1, _tag(1, 18), _tag(1, 20));
     _anlegen(9, 2, _tag(1, 10), _tag(1, 12));
+    // morgen frueh Reinigung in Waschkueche 1
+    _sperrzeiten.add({
+      'id': 1,
+      'room_id': 1,
+      'start_time': _tag(1, 7).toUtc().toIso8601String(),
+      'end_time': _tag(1, 10).toUtc().toIso8601String(),
+      'grund': 'Reinigung',
+    });
   }
 
   Map<String, dynamic> _mitNamen(Map<String, dynamic> r) {
@@ -171,13 +186,67 @@ class Attrappe implements Transport {
           return (status: 200, json: {'created': n, 'reservations': <Object>[]});
         }
         if (!frei(von, bis)) return (status: 409, json: {'error': 'Zeitraum überschneidet sich mit bestehender Reservierung'});
+        final sp = _sperrzeiten.where((x) => x['room_id'] == raum && _z(x['start_time']).isBefore(bis) && _z(x['end_time']).isAfter(von));
+        if (sp.isNotEmpty) return (status: 409, json: {'error': 'Gesperrt: ${sp.first['grund']}', 'sperrzeit': true});
         _anlegen(ich, raum, von, bis);
         return (status: 200, json: _reservationen.last);
       case 'GET /api/wasch/settings':
         return (status: 200, json: _einstellungen);
       case 'PUT /api/wasch/settings':
-        _einstellungen['cost_per_kwh'] = '${k['cost_per_kwh']}';
+        for (final e in k.entries) {
+          if (_einstellungen.containsKey(e.key)) _einstellungen[e.key] = '${e.value}';
+        }
         return (status: 200, json: {'success': true});
+      case 'GET /api/wasch/sperrzeiten':
+        final raum = int.tryParse(u.queryParameters['room_id'] ?? '');
+        final von = DateTime.tryParse(u.queryParameters['from'] ?? '');
+        final bis = DateTime.tryParse(u.queryParameters['to'] ?? '');
+        final j = jetzt();
+        return (
+          status: 200,
+          json: [
+            for (final x in _sperrzeiten)
+              if ((raum == null || x['room_id'] == raum) &&
+                  (von == null ? _z(x['end_time']).isAfter(j) : !_z(x['end_time']).isBefore(von)) &&
+                  (bis == null || !_z(x['start_time']).isAfter(bis)))
+                {...x, 'room_name': _raeume.firstWhere((r) => r['id'] == x['room_id'])['name']},
+          ],
+        );
+      case 'POST /api/wasch/sperrzeiten':
+        if (!_darfAendern) return _darfVerwalten ? _nurLesen : _keinRecht;
+        if ('${k['grund'] ?? ''}'.trim().isEmpty) return (status: 400, json: {'error': 'Bitte einen Grund angeben', 'feld': 'grund'});
+        final von = DateTime.parse('${k['start_time']}'), bis = DateTime.parse('${k['end_time']}');
+        final treffer = [
+          for (final r in offen)
+            if (r['room_id'] == k['room_id'] && _z(r['start_time']).isBefore(bis) && _z(r['end_time']).isAfter(von)) r,
+        ];
+        final betroffen = [
+          for (final r in treffer)
+            {
+              'id': r['id'],
+              'start_time': r['start_time'],
+              'end_time': r['end_time'],
+              'wiederkehrend': r['recurring'] == true,
+              'user_name': _personen[r['user_id']]?.$1,
+              'wohnung': _personen[r['user_id']]?.$2,
+            },
+        ];
+        if (k['vorschau'] == true) return (status: 200, json: {'vorschau': true, 'betroffen': betroffen});
+        if (treffer.isNotEmpty && k['bestaetigt'] != true) {
+          return (status: 409, json: {'error': 'Bitte bestätigen', 'bestaetigung_noetig': true, 'betroffen': betroffen});
+        }
+        _sperrzeiten.add({
+          'id': _sperrzeiten.length + 10,
+          'room_id': k['room_id'],
+          'start_time': von.toUtc().toIso8601String(),
+          'end_time': bis.toUtc().toIso8601String(),
+          'grund': '${k['grund']}'.trim(),
+        });
+        for (final r in treffer) {
+          r['cancelled'] = true;
+        }
+        final personen = {for (final r in treffer) r['user_id']};
+        return (status: 200, json: {..._sperrzeiten.last, 'storniert': treffer.length, 'benachrichtigt': personen.length, 'betroffen': betroffen});
       case 'GET /api/wasch/admin/stats':
         return (
           status: 200,
@@ -217,7 +286,14 @@ class Attrappe implements Transport {
           ],
         );
       case 'POST /api/wasch/admin/billing/run':
-        return (status: 200, json: {'success': true, 'message': 'Abrechnung wurde ausgeführt'});
+        final j = jetzt();
+        final m = '${k['month'] ?? ''}';
+        final laufend = '${j.year}-${j.month.toString().padLeft(2, '0')}';
+        if (!RegExp(r'^\d{4}-\d{2}$').hasMatch(m) || m.compareTo(laufend) >= 0) {
+          return (status: 400, json: {'error': 'Abrechnen geht nur für vergangene Monate', 'feld': 'month'});
+        }
+        if (!_abgerechnet.add(m)) return (status: 409, json: {'error': '$m ist schon abgerechnet'});
+        return (status: 200, json: {'success': true, 'month': m, 'anzahl': 2, 'message': 'Abrechnung $m: 2 Personen'});
     }
 
     // /api/wasch/rooms/:id, /api/wasch/reservations/:id[/series]
@@ -230,6 +306,12 @@ class Attrappe implements Transport {
       }
       r.addAll(k);
       return (status: 200, json: r);
+    }
+    if (methode == 'DELETE' && teile.length == 4 && teile[2] == 'sperrzeiten') {
+      if (!_darfAendern) return _darfVerwalten ? _nurLesen : _keinRecht;
+      final vorher = _sperrzeiten.length;
+      _sperrzeiten.removeWhere((x) => '${x['id']}' == teile[3]);
+      return vorher == _sperrzeiten.length ? (status: 404, json: {'error': 'Sperrzeit nicht gefunden'}) : (status: 200, json: {'success': true});
     }
     if (methode == 'DELETE' && teile.length >= 4 && teile[2] == 'reservations') {
       final r = _reservationen.firstWhere((x) => '${x['id']}' == teile[3] && x['cancelled'] != true, orElse: () => <String, dynamic>{});
